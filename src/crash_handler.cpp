@@ -2,7 +2,9 @@
 #include <crtdbg.h>
 #include <csignal>
 #include <cstdio>
+#include <ctime>
 #include <exception>
+#include <fstream>
 
 #include "crash_handler.h"
 
@@ -35,8 +37,9 @@ char const* const error_messages[] = {
     "A call to terminate()/unexpected() or pure virtual call",
     "SIGABRT caught"};
 
-static EXCEPTION_POINTERS  exception_ptrs;
-static size_t              exc_msg_index = 0;
+static EXCEPTION_RECORD  exception_record;
+static CONTEXT           exception_context;
+static size_t            err_msg_index = 0;
 
 size_t const  extra_message_size = 4096;
 static char   extra_message[extra_message_size];
@@ -59,34 +62,34 @@ LONG WINAPI catch_seh(PEXCEPTION_POINTERS pExceptionPtrs)
 #endif
     }
 
-    exception_ptrs.ExceptionRecord = pExceptionPtrs->ExceptionRecord;
-    exception_ptrs.ContextRecord   = pExceptionPtrs->ContextRecord;
+    exception_record  = *pExceptionPtrs->ExceptionRecord;
+    exception_context = *pExceptionPtrs->ContextRecord;
 
-    switch(exception_ptrs.ExceptionRecord->ExceptionCode)
+    switch(exception_record.ExceptionCode)
     {
-    case EXCEPTION_ACCESS_VIOLATION:         exc_msg_index = 0;  break;
-    case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:    exc_msg_index = 1;  break;
-    case EXCEPTION_BREAKPOINT:               exc_msg_index = 2;  break;
-    case EXCEPTION_DATATYPE_MISALIGNMENT:    exc_msg_index = 3;  break;
-    case EXCEPTION_FLT_DENORMAL_OPERAND:     exc_msg_index = 4;  break;
-    case EXCEPTION_FLT_DIVIDE_BY_ZERO:       exc_msg_index = 5;  break;
-    case EXCEPTION_FLT_INEXACT_RESULT:       exc_msg_index = 6;  break;
-    case EXCEPTION_FLT_INVALID_OPERATION:    exc_msg_index = 7;  break;
-    case EXCEPTION_FLT_OVERFLOW:             exc_msg_index = 8;  break;
-    case EXCEPTION_FLT_STACK_CHECK:          exc_msg_index = 9;  break;
-    case EXCEPTION_FLT_UNDERFLOW:            exc_msg_index = 10; break;
-    case EXCEPTION_ILLEGAL_INSTRUCTION:      exc_msg_index = 11; break;
-    case EXCEPTION_IN_PAGE_ERROR:            exc_msg_index = 12; break;
-    case EXCEPTION_INT_DIVIDE_BY_ZERO:       exc_msg_index = 13; break;
-    case EXCEPTION_INT_OVERFLOW:             exc_msg_index = 14; break;
-    case EXCEPTION_INVALID_DISPOSITION:      exc_msg_index = 15; break;
-    case EXCEPTION_NONCONTINUABLE_EXCEPTION: exc_msg_index = 16; break;
-    case EXCEPTION_PRIV_INSTRUCTION:         exc_msg_index = 17; break;
-    case EXCEPTION_SINGLE_STEP:              exc_msg_index = 18; break;
-    case EXCEPTION_STACK_OVERFLOW:           exc_msg_index = 19; break;
+    case EXCEPTION_ACCESS_VIOLATION:         err_msg_index = 0;  break;
+    case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:    err_msg_index = 1;  break;
+    case EXCEPTION_BREAKPOINT:               err_msg_index = 2;  break;
+    case EXCEPTION_DATATYPE_MISALIGNMENT:    err_msg_index = 3;  break;
+    case EXCEPTION_FLT_DENORMAL_OPERAND:     err_msg_index = 4;  break;
+    case EXCEPTION_FLT_DIVIDE_BY_ZERO:       err_msg_index = 5;  break;
+    case EXCEPTION_FLT_INEXACT_RESULT:       err_msg_index = 6;  break;
+    case EXCEPTION_FLT_INVALID_OPERATION:    err_msg_index = 7;  break;
+    case EXCEPTION_FLT_OVERFLOW:             err_msg_index = 8;  break;
+    case EXCEPTION_FLT_STACK_CHECK:          err_msg_index = 9;  break;
+    case EXCEPTION_FLT_UNDERFLOW:            err_msg_index = 10; break;
+    case EXCEPTION_ILLEGAL_INSTRUCTION:      err_msg_index = 11; break;
+    case EXCEPTION_IN_PAGE_ERROR:            err_msg_index = 12; break;
+    case EXCEPTION_INT_DIVIDE_BY_ZERO:       err_msg_index = 13; break;
+    case EXCEPTION_INT_OVERFLOW:             err_msg_index = 14; break;
+    case EXCEPTION_INVALID_DISPOSITION:      err_msg_index = 15; break;
+    case EXCEPTION_NONCONTINUABLE_EXCEPTION: err_msg_index = 16; break;
+    case EXCEPTION_PRIV_INSTRUCTION:         err_msg_index = 17; break;
+    case EXCEPTION_SINGLE_STEP:              err_msg_index = 18; break;
+    case EXCEPTION_STACK_OVERFLOW:           err_msg_index = 19; break;
     default:
-        exc_msg_index = 20;
-        sprintf_s(extra_message, extra_message_size, "%u", exception_ptrs.ExceptionRecord->ExceptionCode);
+        err_msg_index = 20;
+        sprintf_s(extra_message, extra_message_size, "%u", exception_record.ExceptionCode);
         break;
     }
     report_and_exit(); // no return from there
@@ -98,7 +101,7 @@ void __cdecl catch_invalid_parameter(wchar_t const* expression, wchar_t const* f
                                      wchar_t const* file      , unsigned int   line,
                                      uintptr_t)
 {
-    exc_msg_index = 21;
+    err_msg_index = 21;
     static wchar_t wmsg[extra_message_size / sizeof(wchar_t)];
 
     swprintf_s(wmsg, extra_message_size, L"Func: %s. File: %s. Line: %d. Expression: %s", function, file, line, expression);
@@ -108,7 +111,7 @@ void __cdecl catch_invalid_parameter(wchar_t const* expression, wchar_t const* f
 
 void __cdecl catch_terminate_unexpected_purecall()
 {
-    exc_msg_index = 22;
+    err_msg_index = 22;
     
     /// this call somehow allows to get some stack info in Release configuration
     RaiseException(0, 0, 0, NULL);
@@ -116,12 +119,76 @@ void __cdecl catch_terminate_unexpected_purecall()
 
 void catch_signals(int code)
 {
-    exc_msg_index = 23;
+    err_msg_index = 23;
     report_and_exit();
+}
+
+void fill_exception_pointers()
+{
+    memset(&exception_context, 0, sizeof(CONTEXT));
+    exception_context.ContextFlags = CONTEXT_FULL;
+
+#ifdef _X86_
+    RtlCaptureContext(&exception_context);
+#elif defined (_IA64_) || defined (_AMD64_)
+    /* Need to fill up the Context in IA64 and AMD64. */
+    RtlCaptureContext(&exception_context);
+#else  /* defined (_IA64_) || defined (_AMD64_) */
+    ZeroMemory(&exception_context, sizeof(exception_context));
+#endif  /* defined (_IA64_) || defined (_AMD64_) */
+
+    memset(&exception_record, 0, sizeof(EXCEPTION_RECORD));
+#ifdef _M_IX86
+    exception_record.ExceptionAddress = (PVOID)exception_context.Eip;
+#elif _M_X64
+    exception_record.ExceptionAddress = (PVOID)exception_context.Rip;
+#elif _M_IA64
+    exception_record.ExceptionAddress = (PVOID)exception_context.StIIP;
+#endif  
+}
+
+char const* const dump_filename()
+{
+    static char const   prefix[]   = "crash_";
+    static size_t const prefix_len = sizeof(prefix) / sizeof(char);
+    
+    static size_t const dump_filename_size = 1024;
+    static char         dumpfile[dump_filename_size];
+    
+    memset(dumpfile, 0, dump_filename_size);
+    memcpy(dumpfile, prefix, prefix_len);
+
+    static size_t const name_len = GetModuleFileName(NULL, dumpfile + 12, 1012);
+    
+    static size_t suffix_len = dump_filename_size - (prefix_len + name_len);
+    if (18 < suffix_len)
+        suffix_len = 18;
+
+    time_t const cur_time = time(NULL);
+    struct tm cur_tm;
+    localtime_s(&cur_tm, &cur_time);
+    strftime(dumpfile + prefix_len + name_len, suffix_len, "%Y-%m-%d_%H%M%S", &cur_tm);
+    
+    return dumpfile;
 }
 
 void report_and_exit()
 {
+    if (exception_record.ExceptionAddress == NULL)
+        fill_exception_pointers();
+
+    static std::ofstream ofstr;
+    ofstr.open(dump_filename());
+
+    ofstr << error_messages[err_msg_index] << "\n";
+    ofstr << extra_message << "\n";
+    ofstr << "Crashed thread: " << GetCurrentThreadId() << "\n";
+    ofstr.close();
+
+    if (IsDebuggerPresent())
+        __debugbreak();
+    
+    TerminateProcess(GetCurrentProcess(), 1);
 }
 
 ch::ch()
@@ -137,7 +204,8 @@ ch::ch()
     set_terminate(catch_terminate_unexpected_purecall);      // catch terminate() calls.
     signal(SIGABRT, catch_signals);                          // C++ signal handlers
 
-    memset(&exception_ptrs, 0, sizeof(exception_ptrs));
+    memset(&exception_record , 0, sizeof(exception_record ));
+    memset(&exception_context, 0, sizeof(exception_context));
     memset(extra_message, 0, extra_message_size);
 }
 
