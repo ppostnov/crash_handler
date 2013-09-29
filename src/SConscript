@@ -1,0 +1,4 @@
+
+Import('env') # import environment
+
+env.StaticLibrary(target = 'crash_handler', source = Glob('*.cpp'))
