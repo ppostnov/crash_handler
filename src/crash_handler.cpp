@@ -113,7 +113,7 @@ void __cdecl catch_terminate_unexpected_purecall()
 {
     err_msg_index = 22;
     
-    /// this call somehow allows to get some stack info in Release configuration
+    // this call allows to get some stack info in Release configuration
     RaiseException(0, 0, 0, NULL);
 }
 
@@ -172,6 +172,78 @@ char const* const dump_filename()
     return dumpfile;
 }
 
+void write_stacks(std::ofstream& ofstr)
+{
+    static char temp_path[1024] = {0};
+    if (GetTempPathA(1024, temp_path) == 0)
+    {
+        ofstr << "Can't get temp path" << std::endl;
+        return;
+    }
+
+    DWORD curProcId = GetCurrentProcessId();
+    stack_walker stackwalker(curProcId, temp_path);
+    process_state::proc_stack stack;
+
+    // make a snapshot for iterating the threads
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, curProcId);
+    if (hSnapshot != INVALID_HANDLE_VALUE)
+    {
+        THREADENTRY32 te;
+        te.dwSize = sizeof(te);
+        if (Thread32First(hSnapshot, &te))
+        {
+            std::cerr << "Thread: " << te.th32ThreadID << std::endl;
+            do
+            {
+                if (te.th32OwnerProcessID == curProcId)
+                {
+                    CONTEXT* cntx = NULL;
+                    if (te.th32ThreadID == crashed_thread_)
+                        cntx = exception_ptrs_.ContextRecord;
+                    process_state::thread_stack_ptr thr_stack;
+                    thr_stack = stackwalker.get_thread_stack(te.th32ThreadID, cntx);
+                    LogInfo("get_thread_stack called");
+                    if (thr_stack)
+                        stack.push_back(std::make_pair<size_t, process_state::thread_stack>(te.th32ThreadID, *thr_stack));
+                }
+                te.dwSize = sizeof(te);
+            }
+            while (Thread32Next(hSnapshot, &te));
+        }
+        CloseHandle(hSnapshot);
+    }
+    else
+        LogError("CreateToolhelp32Snapshot failed");
+    stream << std::endl;
+    stream << "==============" << std::endl;
+    stream << "Threads Stacks" << std::endl;
+    stream << "==============" << std::endl;
+    stream << "RVA\tFunction\tFile:Line" << std::endl << std::endl;
+    for (process_state::proc_stack::const_iterator pit = stack.begin(); pit != stack.end(); ++pit)
+    {
+        if (pit != stack.begin())
+            stream << std::endl;
+        stream << "Thread id: " << pit->first << std::endl;
+        stream << "Stack:" << std::endl;
+        for (process_state::thread_stack::const_iterator tit = pit->second.begin();
+            tit != pit->second.end(); ++tit)
+        {
+            stream << std::hex      << std::right << std::setw(8) << std::setfill('0')
+                << tit->address  << "\t"       << std::dec     << std::left
+                << tit->function << "()\t"     << tit->file    << ":"
+                << tit->line     << std::endl;
+        }
+    }
+    stream << "==============" << std::endl;
+
+    stream.flush();
+}
+
+void write_modules(std::ofstream& ofstr)
+{
+}
+
 void report_and_exit()
 {
     if (exception_record.ExceptionAddress == NULL)
@@ -183,6 +255,10 @@ void report_and_exit()
     ofstr << error_messages[err_msg_index] << "\n";
     ofstr << extra_message << "\n";
     ofstr << "Crashed thread: " << GetCurrentThreadId() << "\n";
+    
+    write_stacks (ofstr);
+    write_modules(ofstr);
+    
     ofstr.close();
 
     if (IsDebuggerPresent())
