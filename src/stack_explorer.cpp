@@ -185,9 +185,8 @@ void stack_explorer::thread_stack(DWORD thread_id, thread_stack_t* frames, size_
 
         if (stack_frame.AddrPC.Offset != 0)
         {
-            process_state::stack_entry s_entry;
-            // we seem to have a valid PC
-            // show procedure info (SymGetSymFromAddr64())
+            stack_entry& s_entry = frames[frameNum];
+
             if (SymGetSymFromAddr64(hProc_, stack_frame.AddrPC.Offset, 0, pSym))
             {
                 DWORD64 module_start_address = SymGetModuleBase64(hProc_, stack_frame.AddrPC.Offset);
@@ -196,9 +195,9 @@ void stack_explorer::thread_stack(DWORD thread_id, thread_stack_t* frames, size_
                 else
                     s_entry.address = 0;
 //                s_entry.address = pSym->Address; // starting instruction of the function
-                char undName[SYMBOLS_NAMELEN_MAX];
+                static char undName[SYMBOLS_NAMELEN_MAX];
                 if (UnDecorateSymbolName(pSym->Name, undName, SYMBOLS_NAMELEN_MAX, UNDNAME_COMPLETE)
-                        || UnDecorateSymbolName(pSym->Name, undName, SYMBOLS_NAMELEN_MAX, UNDNAME_NAME_ONLY))
+                    || UnDecorateSymbolName(pSym->Name, undName, SYMBOLS_NAMELEN_MAX, UNDNAME_NAME_ONLY))
                 {
                     s_entry.function.assign(undName);
                 }
@@ -212,10 +211,10 @@ void stack_explorer::thread_stack(DWORD thread_id, thread_stack_t* frames, size_
                 s_entry.function.assign("??");
             }
 
-            IMAGEHLP_LINE64 line;
+            static IMAGEHLP_LINE64 line;
             memset(&line, 0, sizeof(line));
             line.SizeOfStruct = sizeof(line);
-            DWORD displacement;
+            static DWORD displacement;
             if (SymGetLineFromAddr64(hProc_, stack_frame.AddrPC.Offset, &displacement, &line) != FALSE)
             {
                 s_entry.line = line.LineNumber;
@@ -224,12 +223,10 @@ void stack_explorer::thread_stack(DWORD thread_id, thread_stack_t* frames, size_
             else
             {
                 s_entry.line = 0;
-//                std::cerr << "FILE_NAME: " << GetLastError() << std::endl;
                 s_entry.file.assign("??");
             }
-            thread_stck->push_back(std::move(s_entry));
         }
-    } // for ( frameNum )
+    }
 
     if (thread_id != GetCurrentThreadId())
         ResumeThread(hThread);
