@@ -1,0 +1,39 @@
+-- auto-gen settings (DO NOT MODIFY) --
+
+CWD=C:/Users/pavel/src/crash_handler
+Version=25
+VimEntryName=crash_handler
+VimfilesDirName=.vimfiles.crash_handler
+
+-- ex-plugins File Settings --
+
+LangType=c,cpp
+Project=./.vimfiles.crash_handler/project_tree.exproject
+FilenameList=./.vimfiles.crash_handler/filenamelist
+Tag=./.vimfiles.crash_handler/tags
+ID=./.vimfiles.crash_handler/ID
+Symbol=./.vimfiles.crash_handler/symbol
+Macro=./.vimfiles.crash_handler/macro
+Cscope=./.vimfiles.crash_handler/cscope.out
+Inherits=./.vimfiles.crash_handler/inherits
+Bookmarks=./.vimfiles.crash_handler/bookmarks
+
+vimentryRefs+=
+
+-- ex-plugins Behavior Settings --
+
+RestoreBuffers=true
+AskForRestoration=true
+RestoreInfo=./.vimfiles.crash_handler/restore_info
+
+-- LookupFile Settings --
+
+LookupFileTag=./.vimfiles.crash_handler/filenametags
+
+-- Visual Studio Settings --
+
+vsTaskList=./.vimfiles.crash_handler/vs_task_list
+vsOutput=./.vimfiles.crash_handler/vs_output
+vsFindResult1=./.vimfiles.crash_handler/vs_find_results_1
+vsFindResult2=./.vimfiles.crash_handler/vs_find_results_2
+
