@@ -7,6 +7,7 @@
 stack_explorer::stack_explorer(DWORD dw_process_id = GetCurrentProcessId(), char const* sympath = 0)
     : dwProcId_   (dw_process_id)
     , SYM_PATH_LEN(2048)
+    , SYM_NAME_LEN(256)
 {
     hProc_ = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, dwProcId_);
     sym_init();
@@ -95,7 +96,7 @@ void stack_explorer::sym_init()
     CloseHandle(hSnap);
 }
 
-void stack_explorer::thread_stack(DWORD thread_id, thread_stack_t* frames, size_t num_frames,
+void stack_explorer::thread_stack(DWORD thread_id, stack_frame_t* frames, size_t num_frames,
                                   CONTEXT* cntx = NULL)
 {
     memset(frames, '\0', num_frames * sizeof(thread_stack_t));
@@ -166,11 +167,11 @@ void stack_explorer::thread_stack(DWORD thread_id, thread_stack_t* frames, size_
 #   error "Platform not supported!"
 #endif
 
-    static char pSymBuf[sizeof(IMAGEHLP_SYMBOL64) + SYMBOLS_NAMELEN_MAX * sizeof(CHAR)];
+    static char pSymBuf[sizeof(IMAGEHLP_SYMBOL64) + SYM_NAME_LEN * sizeof(CHAR)];
     static PIMAGEHLP_SYMBOL64 pSym = (PIMAGEHLP_SYMBOL64)pSymBuf;
-    memset(pSym, 0, sizeof(IMAGEHLP_SYMBOL64) + SYMBOLS_NAMELEN_MAX * sizeof(CHAR));
+    memset(pSym, 0, sizeof(IMAGEHLP_SYMBOL64) + SYM_NAME_LEN * sizeof(CHAR));
     pSym->SizeOfStruct = sizeof(IMAGEHLP_SYMBOL64);
-    pSym->MaxNameLength = SYMBOLS_NAMELEN_MAX;
+    pSym->MaxNameLength = SYM_NAME_LEN;
 
     for (size_t frameNum = 0; frameNum < num_frames; ++frameNum)
     {
@@ -185,7 +186,7 @@ void stack_explorer::thread_stack(DWORD thread_id, thread_stack_t* frames, size_
 
         if (stack_frame.AddrPC.Offset != 0)
         {
-            stack_entry& s_entry = frames[frameNum];
+            stack_frame_t& s_entry = frames[frameNum];
 
             if (SymGetSymFromAddr64(hProc_, stack_frame.AddrPC.Offset, 0, pSym))
             {
@@ -195,20 +196,20 @@ void stack_explorer::thread_stack(DWORD thread_id, thread_stack_t* frames, size_
                 else
                     s_entry.address = 0;
 //                s_entry.address = pSym->Address; // starting instruction of the function
-                static char undName[SYMBOLS_NAMELEN_MAX];
-                if (UnDecorateSymbolName(pSym->Name, undName, SYMBOLS_NAMELEN_MAX, UNDNAME_COMPLETE)
-                    || UnDecorateSymbolName(pSym->Name, undName, SYMBOLS_NAMELEN_MAX, UNDNAME_NAME_ONLY))
+                static char sym_name_[SYM_NAME_LEN];
+                if (UnDecorateSymbolName(pSym->Name, sym_name_, SYM_NAME_LEN, UNDNAME_COMPLETE)
+                    || UnDecorateSymbolName(pSym->Name, sym_name_, SYM_NAME_LEN, UNDNAME_NAME_ONLY))
                 {
-                    s_entry.function.assign(undName);
+                    strncpy(s_entry.function, sym_name_, MAX_FUNCTION_LEN);
                 }
                 else
                 {
-                    s_entry.function.assign(pSym->Name);
+                    strncpy(s_entry.function, pSym->Name, MAX_FUNCTION_LEN);
                 }
             }
             else
             {
-                s_entry.function.assign("??");
+                strncpy(s_entry.function, "??", MAX_FUNCTION_LEN);
             }
 
             static IMAGEHLP_LINE64 line;
@@ -218,12 +219,12 @@ void stack_explorer::thread_stack(DWORD thread_id, thread_stack_t* frames, size_
             if (SymGetLineFromAddr64(hProc_, stack_frame.AddrPC.Offset, &displacement, &line) != FALSE)
             {
                 s_entry.line = line.LineNumber;
-                s_entry.file.assign(line.FileName);
+                strncpy(s_entry.function, line.FileName, MAX_FILENAME_LEN);
             }
             else
             {
                 s_entry.line = 0;
-                s_entry.file.assign("??");
+                strncpy(s_entry.function, "??", MAX_FILENAME_LEN);
             }
         }
     }
