@@ -1,13 +1,16 @@
+#include <Windows.h>
+#include <DbgHelp.h>
+#include <Shlwapi.h>
+#include <TlHelp32.h>
 #pragma comment(lib, "DbgHelp.lib")
 #pragma comment(lib, "Shlwapi.lib")
 
 #include "stack_explorer.h"
+#include "util.h"
 
 
-stack_explorer::stack_explorer(DWORD dw_process_id = GetCurrentProcessId(), char const* sympath = 0)
+stack_explorer::stack_explorer(DWORD dw_process_id, char const* sympath)
     : dwProcId_   (dw_process_id)
-    , SYM_PATH_LEN(2048)
-    , SYM_NAME_LEN(256)
 {
     hProc_ = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, dwProcId_);
     sym_init();
@@ -36,13 +39,13 @@ void stack_explorer::sym_init()
     static size_t const path_buf_len = 1024;
     static char path_buf[path_buf_len];
 
-    size_t written = GetCurrentDirectoryA(path_buf, path_buf_len);
+    size_t written = GetCurrentDirectoryA(path_buf_len, path_buf);
     len += append_path(buf + len, buflen - len, path_buf, path_buf_len);
 
     written += GetModuleFileNameA(NULL, path_buf, 1024);
     if (written > 0)
     {
-        HRESULT res = PathCchRemoveFileSpec(path_buf);
+        HRESULT res = PathRemoveFileSpecA(path_buf);
         if (S_OK == res || S_FALSE == res)
         {
             written = strlen(path_buf);
@@ -58,10 +61,10 @@ void stack_explorer::sym_init()
 
     GetEnvironmentVariableA("SYSTEMROOT", path_buf, path_buf_len);
     len += append_path(buf + len, buflen - len, path_buf, written);
-    strcat_s(path_buf, "\\system32;", path_buf_len - strlen(path_buf));
+    strncat(path_buf, "\\system32;", path_buf_len - strlen(path_buf));
     len += append_path(buf + len, buflen - len, path_buf, written);
 
-    SymInitialize(hProc, sympath_, FALSE); // can't do much with return value
+    SymInitialize(hProc_, sym_path_, FALSE); // can't do much with return value
 
     DWORD symOptions = SymGetOptions();
     symOptions |= SYMOPT_LOAD_LINES; // Loads line number information.
@@ -88,7 +91,7 @@ void stack_explorer::sym_init()
     do
     {
         if (0 == SymLoadModule64(hProc_, 0, mod_entry.szExePath, mod_entry.szModule,
-                                 mod_entry.modBaseAddr, mod_entry.modBaseSize)
+                                 DWORD64(mod_entry.modBaseAddr), mod_entry.modBaseSize)
                 && ERROR_SUCCESS != GetLastError())
             continue;
     }
@@ -97,9 +100,9 @@ void stack_explorer::sym_init()
 }
 
 void stack_explorer::thread_stack(DWORD thread_id, stack_frame_t* frames, size_t num_frames,
-                                  CONTEXT* cntx = NULL)
+                                  CONTEXT* cntx)
 {
-    memset(frames, '\0', num_frames * sizeof(thread_stack_t));
+    memset(frames, '\0', num_frames * sizeof(stack_frame_t));
 
     static HANDLE hThread = OpenThread(THREAD_SUSPEND_RESUME
                                      | THREAD_GET_CONTEXT
