@@ -1,13 +1,13 @@
 -- auto-gen settings (DO NOT MODIFY) --
 
-CWD=C:/Users/pavel/src/crash_handler
+CWD=E:/src/crash_handler
 Version=25
 VimEntryName=crash_handler
 VimfilesDirName=.vimfiles.crash_handler
 
 -- ex-plugins File Settings --
 
-LangType=c,cpp
+LangType=cpp
 Project=./.vimfiles.crash_handler/project_tree.exproject
 FilenameList=./.vimfiles.crash_handler/filenamelist
 Tag=./.vimfiles.crash_handler/tags

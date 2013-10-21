@@ -172,40 +172,30 @@ char const* const dump_filename()
     return dumpfile;
 }
 
-void write_stacks(std::ofstream& ofstr)
+void write_stacks(std::ostream& ostr)
 {
-    static char temp_path[1024] = {0};
-    if (GetTempPathA(1024, temp_path) == 0)
-    {
-        ofstr << "Can't get temp path" << std::endl;
-        return;
-    }
+    static size_t const   stack_buf_size = 128;
+    static stack_frame_t  stack_buf[stack_buf_size];
 
-    DWORD curProcId = GetCurrentProcessId();
-    stack_walker stackwalker(curProcId, temp_path);
-    process_state::proc_stack stack;
+    proc_id_t cur_pid = current_process_id();
+    stack_explorer stexp(cur_pid);
 
-    // make a snapshot for iterating the threads
-    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, curProcId);
+    static HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, cur_pid);
     if (hSnapshot != INVALID_HANDLE_VALUE)
     {
-        THREADENTRY32 te;
+        static THREADENTRY32 te;
         te.dwSize = sizeof(te);
         if (Thread32First(hSnapshot, &te))
         {
-            std::cerr << "Thread: " << te.th32ThreadID << std::endl;
             do
             {
-                if (te.th32OwnerProcessID == curProcId)
+                if (te.th32OwnerProcessID == cur_pid)
                 {
                     CONTEXT* cntx = NULL;
                     if (te.th32ThreadID == crashed_thread_)
                         cntx = exception_ptrs_.ContextRecord;
-                    process_state::thread_stack_ptr thr_stack;
-                    thr_stack = stackwalker.get_thread_stack(te.th32ThreadID, cntx);
-                    LogInfo("get_thread_stack called");
-                    if (thr_stack)
-                        stack.push_back(std::make_pair<size_t, process_state::thread_stack>(te.th32ThreadID, *thr_stack));
+                    stackwalker.thread_stack(te.th32ThreadID, stack_buf, stack_buf_size, cntx);
+                    // TODO: print stack to ostream
                 }
                 te.dwSize = sizeof(te);
             }
@@ -214,33 +204,32 @@ void write_stacks(std::ofstream& ofstr)
         CloseHandle(hSnapshot);
     }
     else
-        LogError("CreateToolhelp32Snapshot failed");
-    stream << std::endl;
-    stream << "==============" << std::endl;
-    stream << "Threads Stacks" << std::endl;
-    stream << "==============" << std::endl;
-    stream << "RVA\tFunction\tFile:Line" << std::endl << std::endl;
+        ostr << "CreateToolhelp32Snapshot failed" << std::endl;
+    //ostr << "==============" << std::endl;
+    //ostr << "Threads Stacks" << std::endl;
+    //ostr << "==============" << std::endl;
+    //ostr << "RVA\tFunction\tFile:Line" << std::endl << std::endl;
     for (process_state::proc_stack::const_iterator pit = stack.begin(); pit != stack.end(); ++pit)
     {
         if (pit != stack.begin())
-            stream << std::endl;
-        stream << "Thread id: " << pit->first << std::endl;
-        stream << "Stack:" << std::endl;
+            ostr << std::endl;
+        ostr << "Thread id: " << pit->first << std::endl;
+        ostr << "Stack:" << std::endl;
         for (process_state::thread_stack::const_iterator tit = pit->second.begin();
             tit != pit->second.end(); ++tit)
         {
-            stream << std::hex      << std::right << std::setw(8) << std::setfill('0')
+            ostr << std::hex      << std::right << std::setw(8) << std::setfill('0')
                 << tit->address  << "\t"       << std::dec     << std::left
                 << tit->function << "()\t"     << tit->file    << ":"
                 << tit->line     << std::endl;
         }
     }
-    stream << "==============" << std::endl;
+    ostr << "==============" << std::endl;
 
-    stream.flush();
+    ostr.flush();
 }
 
-void write_modules(std::ofstream& ofstr)
+void write_modules(std::ostream& ostr)
 {
 }
 
@@ -267,7 +256,7 @@ void report_and_exit()
     TerminateProcess(GetCurrentProcess(), 1);
 }
 
-ch::ch()
+void create_handler()
 {
     _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);      // remove assertion fail window
     _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);       //  remove debug error window
