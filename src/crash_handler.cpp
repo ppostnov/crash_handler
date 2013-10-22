@@ -1,16 +1,18 @@
 #include <Windows.h>
-#include <crtdbg.h>
+#include <TlHelp32.h>
 #include <csignal>
-#include <cstdio>
 #include <ctime>
-#include <exception>
 #include <fstream>
 
 #include "crash_handler.h"
+#include "process_monitor.h"
+#include "stack_explorer.h"
 
 
 namespace crash_handler
 {
+using namespace process_monitor;
+
 char const* const error_messages[] = {
     "Access violation",             // 0
     "Array bounds exceeded",
@@ -40,9 +42,10 @@ char const* const error_messages[] = {
 static EXCEPTION_RECORD  exception_record;
 static CONTEXT           exception_context;
 static size_t            err_msg_index = 0;
+static thread_id_t       crashed_tid;
 
-size_t const  extra_message_size = 4096;
-static char   extra_message[extra_message_size];
+static size_t const  extra_message_size = 4096;
+static char          extra_message[extra_message_size];
 
 void report_and_exit();
 
@@ -191,10 +194,10 @@ void write_stacks(std::ostream& ostr)
             {
                 if (te.th32OwnerProcessID == cur_pid)
                 {
-                    CONTEXT* cntx = NULL;
-                    if (te.th32ThreadID == crashed_thread_)
-                        cntx = exception_ptrs_.ContextRecord;
-                    stackwalker.thread_stack(te.th32ThreadID, stack_buf, stack_buf_size, cntx);
+                    static CONTEXT* cntx = NULL;
+                    if (te.th32ThreadID == crashed_tid)
+                        cntx = &exception_context;
+                    stexp.thread_stack(te.th32ThreadID, stack_buf, stack_buf_size, cntx);
                     // TODO: print stack to ostream
                 }
                 te.dwSize = sizeof(te);
@@ -209,22 +212,22 @@ void write_stacks(std::ostream& ostr)
     //ostr << "Threads Stacks" << std::endl;
     //ostr << "==============" << std::endl;
     //ostr << "RVA\tFunction\tFile:Line" << std::endl << std::endl;
-    for (process_state::proc_stack::const_iterator pit = stack.begin(); pit != stack.end(); ++pit)
-    {
-        if (pit != stack.begin())
-            ostr << std::endl;
-        ostr << "Thread id: " << pit->first << std::endl;
-        ostr << "Stack:" << std::endl;
-        for (process_state::thread_stack::const_iterator tit = pit->second.begin();
-            tit != pit->second.end(); ++tit)
-        {
-            ostr << std::hex      << std::right << std::setw(8) << std::setfill('0')
-                << tit->address  << "\t"       << std::dec     << std::left
-                << tit->function << "()\t"     << tit->file    << ":"
-                << tit->line     << std::endl;
-        }
-    }
-    ostr << "==============" << std::endl;
+    //for (process_state::proc_stack::const_iterator pit = stack.begin(); pit != stack.end(); ++pit)
+    //{
+    //    if (pit != stack.begin())
+    //        ostr << std::endl;
+    //    ostr << "Thread id: " << pit->first << std::endl;
+    //    ostr << "Stack:" << std::endl;
+    //    for (process_state::thread_stack::const_iterator tit = pit->second.begin();
+    //        tit != pit->second.end(); ++tit)
+    //    {
+    //        ostr << std::hex      << std::right << std::setw(8) << std::setfill('0')
+    //            << tit->address  << "\t"       << std::dec     << std::left
+    //            << tit->function << "()\t"     << tit->file    << ":"
+    //            << tit->line     << std::endl;
+    //    }
+    //}
+    //ostr << "==============" << std::endl;
 
     ostr.flush();
 }
