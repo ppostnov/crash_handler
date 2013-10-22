@@ -3,6 +3,7 @@
 #include <csignal>
 #include <ctime>
 #include <fstream>
+#include <iomanip>
 
 #include "crash_handler.h"
 #include "process_monitor.h"
@@ -183,6 +184,11 @@ void write_stacks(std::ostream& ostr)
     proc_id_t cur_pid = current_process_id();
     stack_explorer stexp(cur_pid);
 
+    ostr << "==============" << std::endl;
+    ostr << "Threads Stacks" << std::endl;
+    ostr << "==============" << std::endl;
+    ostr << "RVA\tFunction\tFile:Line" << std::endl;
+
     static HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, cur_pid);
     if (hSnapshot != INVALID_HANDLE_VALUE)
     {
@@ -198,7 +204,20 @@ void write_stacks(std::ostream& ostr)
                     if (te.th32ThreadID == crashed_tid)
                         cntx = &exception_context;
                     stexp.thread_stack(te.th32ThreadID, stack_buf, stack_buf_size, cntx);
-                    // TODO: print stack to ostream
+
+                    ostr << std::endl;
+                    ostr << "Thread id: " << te.th32OwnerProcessID << std::endl;
+                    ostr << "Stack:" << std::endl;
+                    for (size_t k = 0; k < stack_buf_size; ++k)
+                    {
+                        stack_frame_t const* stf = (stack_buf + k);
+                        if (0 == stf)
+                            break;
+                        ostr << std::hex     << std::right << std::setw(8) << std::setfill('0')
+                            << stf->address  << "\t"       << std::dec     << std::left
+                            << stf->function << "()\t"     << stf->file    << ":"
+                            << stf->line     << std::endl;
+                    }
                 }
                 te.dwSize = sizeof(te);
             }
@@ -208,26 +227,8 @@ void write_stacks(std::ostream& ostr)
     }
     else
         ostr << "CreateToolhelp32Snapshot failed" << std::endl;
-    //ostr << "==============" << std::endl;
-    //ostr << "Threads Stacks" << std::endl;
-    //ostr << "==============" << std::endl;
-    //ostr << "RVA\tFunction\tFile:Line" << std::endl << std::endl;
-    //for (process_state::proc_stack::const_iterator pit = stack.begin(); pit != stack.end(); ++pit)
-    //{
-    //    if (pit != stack.begin())
-    //        ostr << std::endl;
-    //    ostr << "Thread id: " << pit->first << std::endl;
-    //    ostr << "Stack:" << std::endl;
-    //    for (process_state::thread_stack::const_iterator tit = pit->second.begin();
-    //        tit != pit->second.end(); ++tit)
-    //    {
-    //        ostr << std::hex      << std::right << std::setw(8) << std::setfill('0')
-    //            << tit->address  << "\t"       << std::dec     << std::left
-    //            << tit->function << "()\t"     << tit->file    << ":"
-    //            << tit->line     << std::endl;
-    //    }
-    //}
-    //ostr << "==============" << std::endl;
+
+    ostr << "==============" << std::endl;
 
     ostr.flush();
 }
