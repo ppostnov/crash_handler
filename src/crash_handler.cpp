@@ -4,6 +4,8 @@
 #include <ctime>
 #include <fstream>
 #include <iomanip>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 #include "crash_handler.h"
 #include "process_monitor.h"
@@ -238,32 +240,21 @@ void write_modules(std::ostream& ostr)
     static MODULEENTRY32 mod_entry;
     mod_entry.dwSize = sizeof(mod_entry);
 
-    static HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, process_id);
+    proc_id_t cur_pid = current_process_id();
+    static HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, cur_pid);
     if (hSnap == INVALID_HANDLE_VALUE)
         return;
 
     ostr << "==============" << std::endl << "Loaded Modules" << std::endl << "==============" << std::endl;
-
     static char time_buf[20];
-    for (process_state::modules_vect::const_iterator mod = modules.begin();
-         mod != modules.end(); ++mod)
-    {
-        sstr << mod->basename << std::endl << "\t"
-             << mod->fullname << std::endl
-             << mod->address << std::endl;
-
-        strftime(time_buf, 20, "%Y-%m-%d %H:%M:%S", &mod_tm);
-        sstr << "\t" << time_buf << std::endl;
-    }
-    sstr << "==============" << std::endl;
 
     Module32First(hSnap, &mod_entry);
     do
     {
         ostr << mod_entry.szModule << std::endl << "\t" << mod_entry.szExePath << std::endl << mod_entry.modBaseAddr << std::endl;
         static int64_t mtime = 0;
-        static struct stat file_stat;
-        if (!stat(mod_entry.szExePath, &(file_stat)))
+        static struct _stat file_stat;
+        if (!_stat(mod_entry.szExePath, &(file_stat)))
             mtime = file_stat.st_mtime;
 
         static char   time_buf[20];
