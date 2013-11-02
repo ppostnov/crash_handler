@@ -5,6 +5,10 @@
 namespace crash_handler
 {
 
-void create_handler();
+struct handler
+{
+    handler();
+    ~handler();
+};
 
 } // namespace crash_handler

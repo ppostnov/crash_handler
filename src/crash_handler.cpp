@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <functional>
 
 #include "crash_handler.h"
 #include "process_monitor.h"
@@ -42,15 +43,102 @@ char const* const error_messages[] = {
     "A call to terminate()/unexpected() or pure virtual call",
     "SIGABRT caught"};
 
-static EXCEPTION_RECORD  exception_record;
-static CONTEXT           exception_context;
-static size_t            err_msg_index = 0;
-static thread_id_t       crashed_tid;
+static char const    prefix[]   = "crash_";
+static size_t const  prefix_len = sizeof(prefix) / sizeof(char);
 
+static size_t const  dump_filename_size = 1024;
 static size_t const  extra_message_size = 4096;
-static char          extra_message[extra_message_size];
+static size_t const  stack_buf_size     = 128;
+
 
 void report_and_exit();
+
+LONG WINAPI  catch_seh(PEXCEPTION_POINTERS pExceptionPtrs);
+void __cdecl catch_invalid_parameter(wchar_t const* expression, wchar_t const* function,
+                                     wchar_t const* file      , unsigned int   line,
+                                     uintptr_t);
+void __cdecl catch_terminate_unexpected_purecall();
+void catch_signals(int code);
+void fill_exception_pointers();
+char const* const dump_filename();
+void write_stacks(std::ostream& ostr);
+void write_modules(std::ostream& ostr);
+
+struct mem_store
+{
+    mem_store();
+
+    EXCEPTION_RECORD  exception_record;
+    CONTEXT           exception_context;
+    size_t            err_msg_index;
+    thread_id_t       crashed_tid;
+    wchar_t           wmsg[extra_message_size / sizeof(wchar_t)];
+
+    char              extra_message[extra_message_size];
+    char              dumpfile[dump_filename_size];
+
+    size_t            name_len;
+    size_t            suffix_len;
+
+    time_t            time_t_buf;
+    struct tm         tm_buf;
+
+    stack_frame_t     stack_buf[stack_buf_size];
+    proc_id_t         cur_pid;
+    HANDLE            hSnapshot;
+    THREADENTRY32     te;
+    CONTEXT*          cntx;
+    MODULEENTRY32     mod_entry;
+    char              time_buf[20];
+    std::ofstream     ofstr;
+};
+mem_store*  mem;
+
+handler::handler()
+{
+    mem = new mem_store;
+
+    using namespace std::placeholders;
+
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG); // remove assertion fail window
+    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);  // remove debug error window
+
+    _set_purecall_handler(catch_terminate_unexpected_purecall); // catch pure virtual function call
+    SetUnhandledExceptionFilter(catch_seh); // install SEH handler
+    
+    // must be declared before signal handlers
+    _set_invalid_parameter_handler(catch_invalid_parameter); // catch invalid parameter exception
+    set_terminate(catch_terminate_unexpected_purecall); // catch terminate() calls.
+    signal(SIGABRT, catch_signals); // C++ signal handlers
+}
+
+handler::~handler()
+{
+    delete mem;
+}
+
+mem_store::mem_store()
+{
+    memset(&exception_record , 0, sizeof(exception_record ));
+    memset(&exception_context, 0, sizeof(exception_context));
+    memset(extra_message     , 0, extra_message_size       );
+    memset(wmsg              , 0, sizeof(wmsg)             );
+    memset(dumpfile          , 0, dump_filename_size       );
+    memset(&time_t_buf       , 0, sizeof(time_t_buf)       );
+    memset(&tm_buf           , 0, sizeof(tm_buf)           );
+    memset(stack_buf         , 0, stack_buf_size           );
+    memset(&te               , 0, sizeof(te)               );
+    memset(&mod_entry        , 0, sizeof(mod_entry)        );
+    memset(time_buf          , 0, 20                       );
+
+    err_msg_index = 0;
+    crashed_tid   = 0;
+    name_len      = 0;
+    suffix_len    = 0;
+    cur_pid       = 0;
+    hSnapshot     = 0;
+    cntx          = 0;
+}
 
 LONG WINAPI catch_seh(PEXCEPTION_POINTERS pExceptionPtrs)
 {
@@ -68,34 +156,34 @@ LONG WINAPI catch_seh(PEXCEPTION_POINTERS pExceptionPtrs)
 #endif
     }
 
-    exception_record  = *pExceptionPtrs->ExceptionRecord;
-    exception_context = *pExceptionPtrs->ContextRecord;
+    mem->exception_record  = *pExceptionPtrs->ExceptionRecord;
+    mem->exception_context = *pExceptionPtrs->ContextRecord;
 
-    switch(exception_record.ExceptionCode)
+    switch(mem->exception_record.ExceptionCode)
     {
-    case EXCEPTION_ACCESS_VIOLATION:         err_msg_index = 0;  break;
-    case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:    err_msg_index = 1;  break;
-    case EXCEPTION_BREAKPOINT:               err_msg_index = 2;  break;
-    case EXCEPTION_DATATYPE_MISALIGNMENT:    err_msg_index = 3;  break;
-    case EXCEPTION_FLT_DENORMAL_OPERAND:     err_msg_index = 4;  break;
-    case EXCEPTION_FLT_DIVIDE_BY_ZERO:       err_msg_index = 5;  break;
-    case EXCEPTION_FLT_INEXACT_RESULT:       err_msg_index = 6;  break;
-    case EXCEPTION_FLT_INVALID_OPERATION:    err_msg_index = 7;  break;
-    case EXCEPTION_FLT_OVERFLOW:             err_msg_index = 8;  break;
-    case EXCEPTION_FLT_STACK_CHECK:          err_msg_index = 9;  break;
-    case EXCEPTION_FLT_UNDERFLOW:            err_msg_index = 10; break;
-    case EXCEPTION_ILLEGAL_INSTRUCTION:      err_msg_index = 11; break;
-    case EXCEPTION_IN_PAGE_ERROR:            err_msg_index = 12; break;
-    case EXCEPTION_INT_DIVIDE_BY_ZERO:       err_msg_index = 13; break;
-    case EXCEPTION_INT_OVERFLOW:             err_msg_index = 14; break;
-    case EXCEPTION_INVALID_DISPOSITION:      err_msg_index = 15; break;
-    case EXCEPTION_NONCONTINUABLE_EXCEPTION: err_msg_index = 16; break;
-    case EXCEPTION_PRIV_INSTRUCTION:         err_msg_index = 17; break;
-    case EXCEPTION_SINGLE_STEP:              err_msg_index = 18; break;
-    case EXCEPTION_STACK_OVERFLOW:           err_msg_index = 19; break;
+    case EXCEPTION_ACCESS_VIOLATION:         mem->err_msg_index = 0;  break;
+    case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:    mem->err_msg_index = 1;  break;
+    case EXCEPTION_BREAKPOINT:               mem->err_msg_index = 2;  break;
+    case EXCEPTION_DATATYPE_MISALIGNMENT:    mem->err_msg_index = 3;  break;
+    case EXCEPTION_FLT_DENORMAL_OPERAND:     mem->err_msg_index = 4;  break;
+    case EXCEPTION_FLT_DIVIDE_BY_ZERO:       mem->err_msg_index = 5;  break;
+    case EXCEPTION_FLT_INEXACT_RESULT:       mem->err_msg_index = 6;  break;
+    case EXCEPTION_FLT_INVALID_OPERATION:    mem->err_msg_index = 7;  break;
+    case EXCEPTION_FLT_OVERFLOW:             mem->err_msg_index = 8;  break;
+    case EXCEPTION_FLT_STACK_CHECK:          mem->err_msg_index = 9;  break;
+    case EXCEPTION_FLT_UNDERFLOW:            mem->err_msg_index = 10; break;
+    case EXCEPTION_ILLEGAL_INSTRUCTION:      mem->err_msg_index = 11; break;
+    case EXCEPTION_IN_PAGE_ERROR:            mem->err_msg_index = 12; break;
+    case EXCEPTION_INT_DIVIDE_BY_ZERO:       mem->err_msg_index = 13; break;
+    case EXCEPTION_INT_OVERFLOW:             mem->err_msg_index = 14; break;
+    case EXCEPTION_INVALID_DISPOSITION:      mem->err_msg_index = 15; break;
+    case EXCEPTION_NONCONTINUABLE_EXCEPTION: mem->err_msg_index = 16; break;
+    case EXCEPTION_PRIV_INSTRUCTION:         mem->err_msg_index = 17; break;
+    case EXCEPTION_SINGLE_STEP:              mem->err_msg_index = 18; break;
+    case EXCEPTION_STACK_OVERFLOW:           mem->err_msg_index = 19; break;
     default:
-        err_msg_index = 20;
-        sprintf_s(extra_message, extra_message_size, "%u", exception_record.ExceptionCode);
+        mem->err_msg_index = 20;
+        sprintf_s(mem->extra_message, extra_message_size, "%u", mem->exception_record.ExceptionCode);
         break;
     }
     report_and_exit(); // no return from there
@@ -107,17 +195,15 @@ void __cdecl catch_invalid_parameter(wchar_t const* expression, wchar_t const* f
                                      wchar_t const* file      , unsigned int   line,
                                      uintptr_t)
 {
-    err_msg_index = 21;
-    static wchar_t wmsg[extra_message_size / sizeof(wchar_t)];
-
-    swprintf_s(wmsg, extra_message_size, L"Func: %s. File: %s. Line: %d. Expression: %s", function, file, line, expression);
-    memcpy(extra_message, wmsg, extra_message_size);
+    mem->err_msg_index = 21;
+    swprintf_s(mem->wmsg, extra_message_size, L"Func: %s. File: %s. Line: %d. Expression: %s", function, file, line, expression);
+    memcpy(mem->extra_message, mem->wmsg, extra_message_size);
     report_and_exit();
 }
 
 void __cdecl catch_terminate_unexpected_purecall()
 {
-    err_msg_index = 22;
+    mem->err_msg_index = 22;
     
     // this call allows to get some stack info in Release configuration
     RaiseException(0, 0, 0, NULL);
@@ -125,12 +211,15 @@ void __cdecl catch_terminate_unexpected_purecall()
 
 void catch_signals(int code)
 {
-    err_msg_index = 23;
+    mem->err_msg_index = 23;
     report_and_exit();
 }
 
 void fill_exception_pointers()
 {
+    static EXCEPTION_RECORD & exception_record  = mem->exception_record;
+    static CONTEXT          & exception_context = mem->exception_context;
+
     memset(&exception_context, 0, sizeof(CONTEXT));
     exception_context.ContextFlags = CONTEXT_FULL;
 
@@ -155,64 +244,53 @@ void fill_exception_pointers()
 
 char const* const dump_filename()
 {
-    static char const   prefix[]   = "crash_";
-    static size_t const prefix_len = sizeof(prefix) / sizeof(char);
-    
-    static size_t const dump_filename_size = 1024;
-    static char         dumpfile[dump_filename_size];
-    
-    memset(dumpfile, 0, dump_filename_size);
-    memcpy(dumpfile, prefix, prefix_len);
+    memset(mem->dumpfile, 0, dump_filename_size);
+    memcpy(mem->dumpfile, prefix, prefix_len);
 
-    static size_t const name_len = GetModuleFileName(NULL, dumpfile + 12, 1012);
+    mem->name_len = GetModuleFileName(NULL, mem->dumpfile + 12, 1012);
     
-    static size_t suffix_len = dump_filename_size - (prefix_len + name_len);
-    if (18 < suffix_len)
-        suffix_len = 18;
+    mem->suffix_len = dump_filename_size - (prefix_len + mem->name_len);
+    if (18 < mem->suffix_len)
+        mem->suffix_len = 18;
 
-    time_t const cur_time = time(NULL);
-    struct tm cur_tm;
-    localtime_s(&cur_tm, &cur_time);
-    strftime(dumpfile + prefix_len + name_len, suffix_len, "%Y-%m-%d_%H%M%S", &cur_tm);
+    mem->time_t_buf = time(NULL);
+    localtime_s(&mem->tm_buf, &mem->time_t_buf);
+    strftime(mem->dumpfile + prefix_len + mem->name_len, mem->suffix_len, "%Y-%m-%d_%H%M%S", &mem->tm_buf);
     
-    return dumpfile;
+    return mem->dumpfile;
 }
 
 void write_stacks(std::ostream& ostr)
 {
-    static size_t const   stack_buf_size = 128;
-    static stack_frame_t  stack_buf[stack_buf_size];
-
-    proc_id_t cur_pid = current_process_id();
-    stack_explorer stexp(cur_pid);
+    mem->cur_pid = current_process_id();
+    stack_explorer stexp(mem->cur_pid);
 
     ostr << "==============" << std::endl;
     ostr << "Threads Stacks" << std::endl;
     ostr << "==============" << std::endl;
     ostr << "RVA\tFunction\tFile:Line" << std::endl;
 
-    static HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, cur_pid);
-    if (hSnapshot != INVALID_HANDLE_VALUE)
+    mem->hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, mem->cur_pid);
+    if (mem->hSnapshot != INVALID_HANDLE_VALUE)
     {
-        static THREADENTRY32 te;
-        te.dwSize = sizeof(te);
-        if (Thread32First(hSnapshot, &te))
+        mem->te.dwSize = sizeof(mem->te);
+        if (Thread32First(mem->hSnapshot, &mem->te))
         {
             do
             {
-                if (te.th32OwnerProcessID == cur_pid)
+                if (mem->te.th32OwnerProcessID == mem->cur_pid)
                 {
-                    static CONTEXT* cntx = NULL;
-                    if (te.th32ThreadID == crashed_tid)
-                        cntx = &exception_context;
-                    stexp.thread_stack(te.th32ThreadID, stack_buf, stack_buf_size, cntx);
+                    mem->cntx = NULL;
+                    if (mem->te.th32ThreadID == mem->crashed_tid)
+                        mem->cntx = &mem->exception_context;
+                    stexp.thread_stack(mem->te.th32ThreadID, mem->stack_buf, stack_buf_size, mem->cntx);
 
                     ostr << std::endl;
-                    ostr << "Thread id: " << te.th32OwnerProcessID << std::endl;
+                    ostr << "Thread id: " << mem->te.th32OwnerProcessID << std::endl;
                     ostr << "Stack:" << std::endl;
-                    for (size_t k = 0; k < stack_buf_size; ++k)
+                    for (static size_t k = 0; k < stack_buf_size; ++k)
                     {
-                        stack_frame_t const* stf = (stack_buf + k);
+                        static stack_frame_t const* stf = (mem->stack_buf + k);
                         if (0 == stf)
                             break;
                         ostr << std::hex     << std::right << std::setw(8) << std::setfill('0')
@@ -221,11 +299,11 @@ void write_stacks(std::ostream& ostr)
                             << stf->line     << std::endl;
                     }
                 }
-                te.dwSize = sizeof(te);
+                mem->te.dwSize = sizeof(mem->te);
             }
-            while (Thread32Next(hSnapshot, &te));
+            while (Thread32Next(mem->hSnapshot, &mem->te));
         }
-        CloseHandle(hSnapshot);
+        CloseHandle(mem->hSnapshot);
     }
     else
         ostr << "CreateToolhelp32Snapshot failed" << std::endl;
@@ -237,80 +315,56 @@ void write_stacks(std::ostream& ostr)
 
 void write_modules(std::ostream& ostr)
 {
-    static MODULEENTRY32 mod_entry;
-    mod_entry.dwSize = sizeof(mod_entry);
+    mem->mod_entry.dwSize = sizeof(mem->mod_entry);
 
-    proc_id_t cur_pid = current_process_id();
-    static HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, cur_pid);
-    if (hSnap == INVALID_HANDLE_VALUE)
+    mem->cur_pid = current_process_id();
+    mem->hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, mem->cur_pid);
+    if (mem->hSnapshot == INVALID_HANDLE_VALUE)
         return;
 
     ostr << "==============" << std::endl << "Loaded Modules" << std::endl << "==============" << std::endl;
-    static char time_buf[20];
 
-    Module32First(hSnap, &mod_entry);
+    Module32First(mem->hSnapshot, &mem->mod_entry);
     do
     {
-        ostr << mod_entry.szModule << std::endl << "\t" << mod_entry.szExePath << std::endl << mod_entry.modBaseAddr << std::endl;
+        ostr << mem->mod_entry.szModule << std::endl << "\t" << mem->mod_entry.szExePath << std::endl << mem->mod_entry.modBaseAddr << std::endl;
         static int64_t mtime = 0;
         static struct _stat file_stat;
-        if (!_stat(mod_entry.szExePath, &(file_stat)))
+        if (!_stat(mem->mod_entry.szExePath, &(file_stat)))
             mtime = file_stat.st_mtime;
 
-        static char   time_buf[20];
-        static struct tm mod_tm;
-        static time_t tmp_time = mtime;
 #ifdef _WIN32
-        localtime_s(&mod_tm, &tmp_time);
+        localtime_s(&mem->tm_buf, &mem->time_t_buf);
 #elif __linux__
-        memcpy(&mod_tm, localtime(&tmp_time), sizeof(mod_tm));
+        memcpy(&mem->tm_buf, localtime(&mem->time_t_buf), sizeof(mem->tm_buf));
 #endif
-        strftime(time_buf, 20, "%Y-%m-%d %H:%M:%S", &mod_tm);
-        ostr << "\t" << time_buf << std::endl;
+        strftime(mem->time_buf, 20, "%Y-%m-%d %H:%M:%S", &mem->tm_buf);
+        ostr << "\t" << mem->time_buf << std::endl;
     }
-    while (Module32Next(hSnap, &mod_entry));
-    CloseHandle(hSnap);
+    while (Module32Next(mem->hSnapshot, &mem->mod_entry));
+    CloseHandle(mem->hSnapshot);
 }
 
 void report_and_exit()
 {
-    if (exception_record.ExceptionAddress == NULL)
+    if (mem->exception_record.ExceptionAddress == NULL)
         fill_exception_pointers();
 
-    static std::ofstream ofstr;
-    ofstr.open(dump_filename());
+    mem->ofstr.open(dump_filename());
 
-    ofstr << error_messages[err_msg_index] << "\n";
-    ofstr << extra_message << "\n";
-    ofstr << "Crashed thread: " << GetCurrentThreadId() << "\n";
+    mem->ofstr << error_messages[mem->err_msg_index] << "\n";
+    mem->ofstr << mem->extra_message << "\n";
+    mem->ofstr << "Crashed thread: " << GetCurrentThreadId() << "\n";
     
-    write_stacks (ofstr);
-    write_modules(ofstr);
+    write_stacks (mem->ofstr);
+    write_modules(mem->ofstr);
     
-    ofstr.close();
+    mem->ofstr.close();
 
     if (IsDebuggerPresent())
         __debugbreak();
     
     TerminateProcess(GetCurrentProcess(), 1);
-}
-
-void create_handler()
-{
-    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);      // remove assertion fail window
-    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);       //  remove debug error window
-
-    _set_purecall_handler(catch_terminate_unexpected_purecall);        // catch pure virtual function call
-    SetUnhandledExceptionFilter(catch_seh);                  // install SEH handler
-    
-    // must be declared before signal handlers
-    _set_invalid_parameter_handler(catch_invalid_parameter); // catch invalid parameter exception
-    set_terminate(catch_terminate_unexpected_purecall);      // catch terminate() calls.
-    signal(SIGABRT, catch_signals);                          // C++ signal handlers
-
-    memset(&exception_record , 0, sizeof(exception_record ));
-    memset(&exception_context, 0, sizeof(exception_context));
-    memset(extra_message, 0, extra_message_size);
 }
 
 } // namespace crash_handler
