@@ -17,7 +17,7 @@ namespace crash_handler
 {
 using namespace process_monitor;
 
-char const* const error_messages[] = {
+char const* const ERROR_MESSAGES[] = {
     "Access violation",             // 0
     "Array bounds exceeded",
     "Breakpoint was encountered",
@@ -43,12 +43,12 @@ char const* const error_messages[] = {
     "A call to terminate()/unexpected() or pure virtual call",
     "SIGABRT caught"};
 
-static char const    prefix[]   = "crash_";
-static size_t const  prefix_len = sizeof(prefix) / sizeof(char);
+static char const    PREFIX[]   = "crash_";
+static size_t const  PREFIX_LEN = sizeof(PREFIX) / sizeof(char);
 
-static size_t const  dump_filename_size = 1024;
-static size_t const  extra_message_size = 4096;
-static size_t const  stack_buf_size     = 128;
+static size_t const  DUMP_FILENAME_SIZE = 1024;
+static size_t const  EXTRA_MESSAGE_SIZE = 4096;
+static size_t const  STACK_BUF_SIZE     = 128;
 
 
 void report_and_exit();
@@ -72,10 +72,10 @@ struct mem_store
     CONTEXT           exception_context;
     size_t            err_msg_index;
     thread_id_t       crashed_tid;
-    wchar_t           wmsg[extra_message_size / sizeof(wchar_t)];
+    wchar_t           wmsg[EXTRA_MESSAGE_SIZE / sizeof(wchar_t)];
 
-    char              extra_message[extra_message_size];
-    char              dumpfile[dump_filename_size];
+    char              extra_message[EXTRA_MESSAGE_SIZE];
+    char              dumpfile[DUMP_FILENAME_SIZE];
 
     size_t            name_len;
     size_t            suffix_len;
@@ -83,7 +83,7 @@ struct mem_store
     time_t            time_t_buf;
     struct tm         tm_buf;
 
-    stack_frame_t     stack_buf[stack_buf_size];
+    stack_frame_t     stack_buf[STACK_BUF_SIZE];
     proc_id_t         cur_pid;
     HANDLE            hSnapshot;
     THREADENTRY32     te;
@@ -121,12 +121,12 @@ mem_store::mem_store()
 {
     memset(&exception_record , 0, sizeof(exception_record ));
     memset(&exception_context, 0, sizeof(exception_context));
-    memset(extra_message     , 0, extra_message_size       );
+    memset(extra_message     , 0, EXTRA_MESSAGE_SIZE       );
     memset(wmsg              , 0, sizeof(wmsg)             );
-    memset(dumpfile          , 0, dump_filename_size       );
+    memset(dumpfile          , 0, DUMP_FILENAME_SIZE       );
     memset(&time_t_buf       , 0, sizeof(time_t_buf)       );
     memset(&tm_buf           , 0, sizeof(tm_buf)           );
-    memset(stack_buf         , 0, stack_buf_size           );
+    memset(stack_buf         , 0, STACK_BUF_SIZE           );
     memset(&te               , 0, sizeof(te)               );
     memset(&mod_entry        , 0, sizeof(mod_entry)        );
     memset(time_buf          , 0, 20                       );
@@ -183,7 +183,7 @@ LONG WINAPI catch_seh(PEXCEPTION_POINTERS pExceptionPtrs)
     case EXCEPTION_STACK_OVERFLOW:           mem->err_msg_index = 19; break;
     default:
         mem->err_msg_index = 20;
-        sprintf_s(mem->extra_message, extra_message_size, "%u", mem->exception_record.ExceptionCode);
+        sprintf_s(mem->extra_message, EXTRA_MESSAGE_SIZE, "%u", mem->exception_record.ExceptionCode);
         break;
     }
     report_and_exit(); // no return from there
@@ -196,8 +196,8 @@ void __cdecl catch_invalid_parameter(wchar_t const* expression, wchar_t const* f
                                      uintptr_t)
 {
     mem->err_msg_index = 21;
-    swprintf_s(mem->wmsg, extra_message_size, L"Func: %s. File: %s. Line: %d. Expression: %s", function, file, line, expression);
-    memcpy(mem->extra_message, mem->wmsg, extra_message_size);
+    swprintf_s(mem->wmsg, EXTRA_MESSAGE_SIZE, L"Func: %s. File: %s. Line: %d. Expression: %s", function, file, line, expression);
+    memcpy(mem->extra_message, mem->wmsg, EXTRA_MESSAGE_SIZE);
     report_and_exit();
 }
 
@@ -244,18 +244,18 @@ void fill_exception_pointers()
 
 char const* const dump_filename()
 {
-    memset(mem->dumpfile, 0, dump_filename_size);
-    memcpy(mem->dumpfile, prefix, prefix_len);
+    memset(mem->dumpfile, 0, DUMP_FILENAME_SIZE);
+    memcpy(mem->dumpfile, PREFIX, PREFIX_LEN);
 
     mem->name_len = GetModuleFileName(NULL, mem->dumpfile + 12, 1012);
     
-    mem->suffix_len = dump_filename_size - (prefix_len + mem->name_len);
+    mem->suffix_len = DUMP_FILENAME_SIZE - (PREFIX_LEN + mem->name_len);
     if (18 < mem->suffix_len)
         mem->suffix_len = 18;
 
     mem->time_t_buf = time(NULL);
     localtime_s(&mem->tm_buf, &mem->time_t_buf);
-    strftime(mem->dumpfile + prefix_len + mem->name_len, mem->suffix_len, "%Y-%m-%d_%H%M%S", &mem->tm_buf);
+    strftime(mem->dumpfile + PREFIX_LEN + mem->name_len, mem->suffix_len, "%Y-%m-%d_%H%M%S", &mem->tm_buf);
     
     return mem->dumpfile;
 }
@@ -283,12 +283,12 @@ void write_stacks(std::ostream& ostr)
                     mem->cntx = NULL;
                     if (mem->te.th32ThreadID == mem->crashed_tid)
                         mem->cntx = &mem->exception_context;
-                    stexp.thread_stack(mem->te.th32ThreadID, mem->stack_buf, stack_buf_size, mem->cntx);
+                    stexp.thread_stack(mem->te.th32ThreadID, mem->stack_buf, STACK_BUF_SIZE, mem->cntx);
 
                     ostr << std::endl;
                     ostr << "Thread id: " << mem->te.th32OwnerProcessID << std::endl;
                     ostr << "Stack:" << std::endl;
-                    for (static size_t k = 0; k < stack_buf_size; ++k)
+                    for (static size_t k = 0; k < STACK_BUF_SIZE; ++k)
                     {
                         static stack_frame_t const* stf = (mem->stack_buf + k);
                         if (0 == stf)
@@ -352,7 +352,7 @@ void report_and_exit()
 
     mem->ofstr.open(dump_filename());
 
-    mem->ofstr << error_messages[mem->err_msg_index] << "\n";
+    mem->ofstr << ERROR_MESSAGES[mem->err_msg_index] << "\n";
     mem->ofstr << mem->extra_message << "\n";
     mem->ofstr << "Crashed thread: " << GetCurrentThreadId() << "\n";
     
