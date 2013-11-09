@@ -10,7 +10,7 @@
 
 
 stack_explorer::stack_explorer(DWORD dw_process_id, char const* sympath)
-    : dwProcId_   (dw_process_id)
+    : dwProcId_(dw_process_id)
 {
     hProc_ = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, dwProcId_);
     sym_init();
