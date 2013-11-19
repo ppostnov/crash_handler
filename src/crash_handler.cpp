@@ -64,9 +64,19 @@ char const* const dump_filename();
 void write_stacks(std::ostream& ostr);
 void write_modules(std::ostream& ostr);
 
+typedef void (*signal_handler_function_t)(int);
+
 struct mem_store
 {
     mem_store();
+
+    int                           prev_crt_assert;
+    int                           prev_crt_error;
+    _purecall_handler             prev_purecall_handler;
+    LPTOP_LEVEL_EXCEPTION_FILTER  prev_exception_filter;
+    _invalid_parameter_handler    prev_invalid_param_handler;
+    terminate_function            prev_terminate_func;
+    signal_handler_function_t     prev_signal_handler;
 
     EXCEPTION_RECORD  exception_record;
     CONTEXT           exception_context;
@@ -100,20 +110,30 @@ handler::handler()
 
     using namespace std::placeholders;
 
-    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG); // remove assertion fail window
-    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);  // remove debug error window
+    mem->pre_crt_assert = _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG); // remove assertion fail window
+    mem->pre_crt_error  = _CrtSetReportMode(_CRT_ERROR , _CRTDBG_MODE_DEBUG); // remove debug error window
 
-    _set_purecall_handler(catch_terminate_unexpected_purecall); // catch pure virtual function call
-    SetUnhandledExceptionFilter(catch_seh); // install SEH handler
+    mem->prev_purecall_handler = _set_purecall_handler(catch_terminate_unexpected_purecall); // catch pure virtual function call
+    mem->prev_exception_filter = SetUnhandledExceptionFilter(catch_seh); // install SEH handler
     
     // must be declared before signal handlers
-    _set_invalid_parameter_handler(catch_invalid_parameter); // catch invalid parameter exception
-    set_terminate(catch_terminate_unexpected_purecall); // catch terminate() calls.
-    signal(SIGABRT, catch_signals); // C++ signal handlers
+    mem->prev_invalid_param_handler = _set_invalid_parameter_handler(catch_invalid_parameter); // catch invalid parameter exception
+    mem->prev_terminate_func = set_terminate(catch_terminate_unexpected_purecall); // catch terminate() calls.
+    mem->prev_signal_handler = signal(SIGABRT, catch_signals); // C++ signal handlers
 }
 
 handler::~handler()
 {
+    _CrtSetReportMode(_CRT_ASSERT, mem->prev_crt_assert);
+    _CrtSetReportMode(_CRT_ERROR , mem->prev_crt_error);
+
+    _set_purecall_handler(mem->prev_purecall_handler);
+    SetUnhandledExceptionFilter(mem->prev_exception_filter);
+
+    _set_invalid_parameter_handler(mem->prev_invalid_param_handler);
+    set_terminate(mem->prev_terminate_func);
+    signal(SIGABRT, mem->prev_signal_handler);
+
     delete mem;
 }
 
