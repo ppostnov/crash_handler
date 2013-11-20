@@ -110,8 +110,8 @@ handler::handler()
 
     using namespace std::placeholders;
 
-    mem->pre_crt_assert = _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG); // remove assertion fail window
-    mem->pre_crt_error  = _CrtSetReportMode(_CRT_ERROR , _CRTDBG_MODE_DEBUG); // remove debug error window
+    mem->prev_crt_assert = _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG); // remove assertion fail window
+    mem->prev_crt_error  = _CrtSetReportMode(_CRT_ERROR , _CRTDBG_MODE_DEBUG); // remove debug error window
 
     mem->prev_purecall_handler = _set_purecall_handler(catch_terminate_unexpected_purecall); // catch pure virtual function call
     mem->prev_exception_filter = SetUnhandledExceptionFilter(catch_seh); // install SEH handler

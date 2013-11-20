@@ -1,0 +1,202 @@
+http://msdn.microsoft.com/en-us/library/h2k70f3s.aspx
+http://msdn.microsoft.com/en-us/library/azcs88h2%28v=vs.90%29.aspx#M
+
+/////////////////////////////////////////////////////////////////////////////////////////
+#include <iostream>
+
+int main()
+{
+    int sp=0;
+
+    // you probably want this a lot larger
+    int *mystack = new int[64*1024];
+    int *top = (mystack + 64*1024);
+
+    // Save SP and set SP to our newly created
+    // stack frame
+    __asm__ ( 
+        "mov %%esp,%%eax; mov %%ebx,%%esp":
+        "=a"(sp)
+        :"b"(top)
+        :
+        );
+    std::cout << "sp=" << sp << std::endl;
+
+    // call bad code here
+
+    // restore old SP so we can return to OS
+    __asm__(
+        "mov %%eax,%%esp":
+        :
+        "a"(sp)
+        :);
+
+    std::cout << "Done." << std::endl;
+
+    delete [] mystack;
+    return 0;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+http://support.microsoft.com/kb/315937
+http://msdn.microsoft.com/en-us/library/89f73td2(v=vs.100).aspx
+http://msdn.microsoft.com/en-us/library/5z4bw5h5(v=vs.100).aspx
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+Windows
+http://www.codeproject.com/Articles/207464/Exception-Handling-in-Visual-Cplusplus
+
+1. SEH (Structured Exception Handling)
+Use function SetUnhandledExceptionFilter() - for all threads.
+Exception handler is called in the thread where exception occured.
+RaiseFailFastException() - terminate application and let Dr.Watson handle the rest.
+
+2. VEH (Vectored Exception Handling)
+CAUTION: Win XP and later
+Use function AddVectoredExceptionHandler().
+Allows to catch SEHs too. Allows for chains of handlers.
+
+3. CRT errors
+To handle typed C++ exceptions, call set_terminate() as for such exceptions CRT calls terminate().
+Also call set_unexpected(), though it's not used in current implementations.
+
+4. Pure virtual calls
+Use call to _set_purecall_handler().
+CAUTION: VC++ .NET 2003 and later
+
+5. Memory allocation faults
+Use functions _set_new_handler() and _set_new_mode().
+CAUTION: VC++ .NET 2003 and later
+
+6. CRT invalid parameter
+Use function _set_invalid_parameter_handler().
+CAUTION: VC++ 2005 and later.
+
+7. Signals
+Use function signal().
+There're 6 types of signals in Visual C++:
+ SIGABRT Abnormal termination
+ SIGFPE  Floating-point error
+ SIGILL  Illegal instruction
+ SIGINT  CTRL+C signal
+ SIGSEGV Illegal storage access
+ SIGTERM Termination request
+CAUTION: non-global (per thread) behaviour
+
+
+
+Exception Information Retrieval
+1. SEH
+From EXCEPTION_POINTERS passed as funtion parameter.
+
+2. SIGFPE, SIGSEGV
+From _pxcptinfoptrs global variable, decalared in <signal.h>.
+
+
+A multi-threaded CRT DLL is the recommended way of CRT linkage.
+This allows to handle CRT errors globally.
+"If you plan to use CRT as a static link library (which is not recommended)
+and want to use some exception handling functionality,
+you have to build the functionality as a static library with the /NODEFAULTLIB linker flag
+and then link this functionality to each EXE and DLL module of your application.
+You would also have to install the CRT error handlers for each module of your application,
+while the SEH exception handler would still be installed once."
+
+
+
+Linux
+http://www.ibm.com/developerworks/linux/library/l-cppexcep/index.html
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+Linux Signals
+http://www.opennet.ru/base/dev/unix_signals.txt.html
+http://www.linuxprogrammingblog.com/all-about-linux-signals?page=show
+http://www.cs.cf.ac.uk/Dave/C/node32.html#SECTION003240000000000000000
+http://www.unix.com/man-page/All/5/signal/
+
+Linux Stack Unwinding
+http://blog.bigpixel.ro/2010/09/stack-unwinding-stack-trace-with-gcc/
+
+https://github.com/albertz/openlierox/blob/0.59/src/common/Debug_GetCallstack.cpp
+
+Windows debugging
+http://msdn.microsoft.com/en-us/library/ms939593.aspx
+http://msdn.microsoft.com/en-us/library/windows/desktop/ms680684(v=vs.85).aspx
+http://stackoverflow.com/questions/6594971/how-to-extract-stack-traces-from-minidumps
+
+Windows Exceptions
+http://www.microsoft.com/msj/0197/exception/exception.aspx
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+Linux backtracing
+http://habrahabr.ru/company/ispsystem/blog/144198/
+http://www.s-gms.ms.edus.si/cgi-bin/man-cgi?libthread_db+3THR
+http://people.apache.org/~trawick/child_backtraces.html
+http://unix.stackexchange.com/questions/6301/how-do-i-read-from-proc-pid-mem-under-linux
+http://linux.die.net/man/3/backtrace
+http://www.gnu.org/software/binutils/
+http://linux.die.net/man/2/ptrace
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+Traditional signal() is deprecated, use sigaction() instead.
+http://www.kernel.org/doc/man-pages/online/pages/man2/sigaction.2.html
+There's a short list of safe functions to be called from signal handling function.
+List is given here:
+http://www.kernel.org/doc/man-pages/online/pages/man7/signal.7.html
+
+For SGISEGV raised on stack overflow there exists sigaltstack() function to
+launch the handler on a separate stack.
+
+SIGABRT raises twice (only 1st can be handled).
+
+Signals and threads. Which thread receives the signal?
+There are two cases:
+- Process-directed signals (sent to a PID using functions like kill()).
+Threads have their separate signal mask which can be manipulated using pthread_sigmask()
+similary to sigprocmask(), so such signal is not delivered to a thread that has this signal blocked.
+It's delivered to one of threads in the process with this signal unblocked.
+It's unspecified which thread will get it. If all threads have the signal blocked,
+it's queued in the per-process queue. If there is no signal handler defined for the signal
+and the default action is to terminate the process with or without dumping the core
+the whole process is terminated.
+- Thread-directed signals. There is a special function to send a signal to a specific thread:
+pthread_kill(). It can be used to send a signal from one thread to another (or itself).
+This way the signal will be delivered or queued for the specific thread.
+There are also per-thread directed signals generated by the operating system like SIGSEGV.
+If there is no signal handler defined for a signal that default's action is to terminate the process,
+a thread-directed signal terminated the whole process.
+As you can see there is a process-wide signal queue and a per-thread queues.
+
+Signal handlers are set for the WHOLE process.
+But they may be invoked on any thread which didn't block the signal. If you want to run handles on some
+specific thread, use mask on any other thread (or just on main one,
+the mask will be copied with new threads creation). And unmask on the one and only handling thread.
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+1. "Access violation"			SEH handler (SetUnhandledExceptionFilter)
+2. "Invalid CRT parameter"		_set_invalid_parameter_handler
+3. "Bad allocation"				_set_new_handler (must be declared prior to SEH handler (SetUnhandledExceptionFilter))		Doesn't catch new[-1]
+4. "Stack overflow"
+5. "Pure virtual call"			_set_purecall_handler
+6. "Floating point 1"			handle_sigfpe		PER THREAD		on Windows fp errors must be turned on
+7. "Floating point 2"			handle_sigfpe		PER THREAD		on Windows fp errors must be turned on
+8. "Floating point 3"			handle_sigfpe		PER THREAD		on Windows fp errors must be turned on
+9. "Call to terminate()"		set_terminate		PER THREAD
+10. "Call to unexpected()"		set_unexpected		PER THREAD
+11. "Call to abort()"			handle_sigabrt_sigint_sigill_sigsegv_sigterm
+12. "Raise exception"			SEH handler (SetUnhandledExceptionFilter)
+13. "Throw exception"			SEH handler (SetUnhandledExceptionFilter)
+14. "Raise SIGILL"				handle_sigabrt_sigint_sigill_sigsegv_sigterm	PER THREAD
+15. "Raise SIGINT"				handle_sigabrt_sigint_sigill_sigsegv_sigterm
+16. "Raise SIGINT"				handle_sigabrt_sigint_sigill_sigsegv_sigterm
+17. "Raise SIGSEGV"				handle_sigabrt_sigint_sigill_sigsegv_sigterm	PER THREAD
+
+TODO: check PER THREADs
+
