@@ -44,11 +44,12 @@ char const* const ERROR_MESSAGES[] = {
     "SIGABRT caught"};
 
 static char const    PREFIX[]   = "crash_";
-static size_t const  PREFIX_LEN = sizeof(PREFIX) / sizeof(char);
+static size_t const  PREFIX_LEN = sizeof(PREFIX) / sizeof(PREFIX[0]);
 
 static size_t const  DUMP_FILENAME_SIZE = 1024;
 static size_t const  EXTRA_MESSAGE_SIZE = 4096;
 static size_t const  STACK_BUF_SIZE     = 128;
+static size_t const  TIME_BUF_SIZE      = 20;
 
 
 void report_and_exit();
@@ -99,7 +100,7 @@ struct mem_store
     THREADENTRY32     te;
     CONTEXT*          cntx;
     MODULEENTRY32     mod_entry;
-    char              time_buf[20];
+    char              time_buf[TIME_BUF_SIZE];
     std::ofstream     ofstr;
 };
 mem_store*  mem;
@@ -118,8 +119,8 @@ handler::handler()
     
     // must be declared before signal handlers
     mem->prev_invalid_param_handler = _set_invalid_parameter_handler(catch_invalid_parameter); // catch invalid parameter exception
-    mem->prev_terminate_func = set_terminate(catch_terminate_unexpected_purecall); // catch terminate() calls.
-    mem->prev_signal_handler = signal(SIGABRT, catch_signals); // C++ signal handlers
+    mem->prev_terminate_func        = set_terminate(catch_terminate_unexpected_purecall);      // catch terminate() calls.
+    mem->prev_signal_handler        = signal(SIGABRT, catch_signals);                          // C++ signal handlers
 }
 
 handler::~handler()
@@ -127,12 +128,12 @@ handler::~handler()
     _CrtSetReportMode(_CRT_ASSERT, mem->prev_crt_assert);
     _CrtSetReportMode(_CRT_ERROR , mem->prev_crt_error);
 
-    _set_purecall_handler(mem->prev_purecall_handler);
+    _set_purecall_handler      (mem->prev_purecall_handler);
     SetUnhandledExceptionFilter(mem->prev_exception_filter);
 
     _set_invalid_parameter_handler(mem->prev_invalid_param_handler);
-    set_terminate(mem->prev_terminate_func);
-    signal(SIGABRT, mem->prev_signal_handler);
+    set_terminate                 (mem->prev_terminate_func);
+    signal                        (SIGABRT, mem->prev_signal_handler);
 
     delete mem;
 }
@@ -149,7 +150,15 @@ mem_store::mem_store()
     memset(stack_buf         , 0, STACK_BUF_SIZE           );
     memset(&te               , 0, sizeof(te)               );
     memset(&mod_entry        , 0, sizeof(mod_entry)        );
-    memset(time_buf          , 0, 20                       );
+    memset(time_buf          , 0, TIME_BUF_SIZE            );
+
+    prev_crt_assert            = 0;
+    prev_crt_error             = 0;
+    prev_purecall_handler      = 0;
+    prev_exception_filter      = 0;
+    prev_invalid_param_handler = 0;
+    prev_terminate_func        = 0;
+    prev_signal_handler        = 0;
 
     err_msg_index = 0;
     crashed_tid   = 0;
@@ -264,8 +273,8 @@ void fill_exception_pointers()
 
 char const* const dump_filename()
 {
-    memset(mem->dumpfile, 0, DUMP_FILENAME_SIZE);
-    memcpy(mem->dumpfile, PREFIX, PREFIX_LEN);
+    memset(mem->dumpfile, 0     , DUMP_FILENAME_SIZE);
+    memcpy(mem->dumpfile, PREFIX, PREFIX_LEN        );
 
     mem->name_len = GetModuleFileName(NULL, mem->dumpfile + 12, 1012);
     
@@ -358,7 +367,7 @@ void write_modules(std::ostream& ostr)
 #elif __linux__
         memcpy(&mem->tm_buf, localtime(&mem->time_t_buf), sizeof(mem->tm_buf));
 #endif
-        strftime(mem->time_buf, 20, "%Y-%m-%d %H:%M:%S", &mem->tm_buf);
+        strftime(mem->time_buf, TIME_BUF_SIZE, "%Y-%m-%d %H:%M:%S", &mem->tm_buf);
         ostr << "\t" << mem->time_buf << std::endl;
     }
     while (Module32Next(mem->hSnapshot, &mem->mod_entry));
