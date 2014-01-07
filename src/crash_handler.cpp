@@ -102,6 +102,8 @@ struct mem_store
     MODULEENTRY32     mod_entry;
     char              time_buf[TIME_BUF_SIZE];
     std::ofstream     ofstr;
+
+    char              stexp_place[sizeof(stack_explorer)];
 };
 mem_store*  mem;
 
@@ -151,6 +153,7 @@ mem_store::mem_store()
     memset(&te               , 0, sizeof(te)               );
     memset(&mod_entry        , 0, sizeof(mod_entry)        );
     memset(time_buf          , 0, TIME_BUF_SIZE            );
+    memset(stexp_place       , 0, sizeof(stack_explorer)   );
 
     prev_crt_assert            = 0;
     prev_crt_error             = 0;
@@ -292,7 +295,7 @@ char const* const dump_filename()
 void write_stacks(std::ostream& ostr)
 {
     mem->cur_pid = current_process_id();
-    stack_explorer stexp(mem->cur_pid);
+    stack_explorer* stexp = new(mem->stexp_place) stack_explorer(mem->cur_pid);
 
     ostr << "==============" << std::endl;
     ostr << "Threads Stacks" << std::endl;
@@ -312,7 +315,7 @@ void write_stacks(std::ostream& ostr)
                     mem->cntx = NULL;
                     if (mem->te.th32ThreadID == mem->crashed_tid)
                         mem->cntx = &mem->exception_context;
-                    stexp.thread_stack(mem->te.th32ThreadID, mem->stack_buf, STACK_BUF_SIZE, mem->cntx);
+                    stexp->thread_stack(mem->te.th32ThreadID, mem->stack_buf, STACK_BUF_SIZE, mem->cntx);
 
                     ostr << std::endl;
                     ostr << "Thread id: " << mem->te.th32OwnerProcessID << std::endl;
@@ -340,6 +343,9 @@ void write_stacks(std::ostream& ostr)
     ostr << "==============" << std::endl;
 
     ostr.flush();
+
+    // TODO: not sure if this is a good idea
+    stexp->~stack_explorer();
 }
 
 void write_modules(std::ostream& ostr)
