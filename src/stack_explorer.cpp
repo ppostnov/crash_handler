@@ -1,5 +1,4 @@
 #include <Windows.h>
-#include <DbgHelp.h>
 #include <Shlwapi.h>
 #include <TlHelp32.h>
 #pragma comment(lib, "DbgHelp.lib")
@@ -100,136 +99,129 @@ void stack_explorer::thread_stack(DWORD thread_id, stack_frame_t* frames, size_t
 {
     memset(frames, '\0', num_frames * sizeof(stack_frame_t));
 
-    static HANDLE hThread = OpenThread(THREAD_SUSPEND_RESUME
-                                     | THREAD_GET_CONTEXT
-                                     | THREAD_QUERY_INFORMATION,
-                                       FALSE, thread_id);
-    if (hThread == NULL)
+    h_thread_ = OpenThread(THREAD_SUSPEND_RESUME
+                          | THREAD_GET_CONTEXT
+                          | THREAD_QUERY_INFORMATION,
+                            FALSE, thread_id);
+    if (h_thread_ == NULL)
         return;
 
     if (dw_proc_id_ != GetCurrentProcessId() || thread_id != GetCurrentThreadId())
     {
-        if (SuspendThread(hThread) == -1)
+        if (SuspendThread(h_thread_) == -1)
             return;
     }
 
-    static CONTEXT context;
     if (cntx == NULL)
     {
         memset(&cntx, 0, sizeof(cntx));
         if (dw_proc_id_ == GetCurrentProcessId() && thread_id == GetCurrentThreadId())
         {
-            context.ContextFlags = CONTEXT_FULL;
-            RtlCaptureContext(&context);
+            context_.ContextFlags = CONTEXT_FULL;
+            RtlCaptureContext(&context_);
         }
         else
         {
-            context.ContextFlags = CONTEXT_FULL;
-            if (!GetThreadContext(hThread, &context)) // this function doesn't work for current thread
+            context_.ContextFlags = CONTEXT_FULL;
+            if (!GetThreadContext(h_thread_, &context_)) // this function doesn't work for current thread
                 return;
         }
     }
     else
-        context = *cntx;
+        context_ = *cntx;
 
-    static STACKFRAME64 stack_frame;
-    memset(&stack_frame, 0, sizeof(stack_frame));
-    static DWORD imageType;
+    memset(&stack_frame_, 0, sizeof(stack_frame_));
 #ifdef _M_IX86
     // normally, call ImageNtHeader() and use machine info from PE header
-    imageType = IMAGE_FILE_MACHINE_I386;
-    stack_frame.AddrPC.Offset    = context.Eip;
-    stack_frame.AddrPC.Mode      = AddrModeFlat;
-    stack_frame.AddrFrame.Offset = context.Ebp;
-    stack_frame.AddrFrame.Mode   = AddrModeFlat;
-    stack_frame.AddrStack.Offset = context.Esp;
-    stack_frame.AddrStack.Mode   = AddrModeFlat;
+    image_type_ = IMAGE_FILE_MACHINE_I386;
+    stack_frame_.AddrPC.Offset    = context_.Eip;
+    stack_frame_.AddrPC.Mode      = AddrModeFlat;
+    stack_frame_.AddrFrame.Offset = context_.Ebp;
+    stack_frame_.AddrFrame.Mode   = AddrModeFlat;
+    stack_frame_.AddrStack.Offset = context_.Esp;
+    stack_frame_.AddrStack.Mode   = AddrModeFlat;
 #elif _M_X64
-    imageType = IMAGE_FILE_MACHINE_AMD64;
-    stack_frame.AddrPC.Offset    = context.Rip;
-    stack_frame.AddrPC.Mode      = AddrModeFlat;
-    stack_frame.AddrFrame.Offset = context.Rsp;
-    stack_frame.AddrFrame.Mode   = AddrModeFlat;
-    stack_frame.AddrStack.Offset = context.Rsp;
-    stack_frame.AddrStack.Mode   = AddrModeFlat;
+    image_type_ = IMAGE_FILE_MACHINE_AMD64;
+    stack_frame_.AddrPC.Offset    = context_.Rip;
+    stack_frame_.AddrPC.Mode      = AddrModeFlat;
+    stack_frame_.AddrFrame.Offset = context_.Rsp;
+    stack_frame_.AddrFrame.Mode   = AddrModeFlat;
+    stack_frame_.AddrStack.Offset = context_.Rsp;
+    stack_frame_.AddrStack.Mode   = AddrModeFlat;
 #elif _M_IA64
-    imageType = IMAGE_FILE_MACHINE_IA64;
-    stack_frame.AddrPC.Offset     = context.StIIP;
-    stack_frame.AddrPC.Mode       = AddrModeFlat;
-    stack_frame.AddrFrame.Offset  = context.IntSp;
-    stack_frame.AddrFrame.Mode    = AddrModeFlat;
-    stack_frame.AddrBStore.Offset = context.RsBSP;
-    stack_frame.AddrBStore.Mode   = AddrModeFlat;
-    stack_frame.AddrStack.Offset  = context.IntSp;
-    stack_frame.AddrStack.Mode    = AddrModeFlat;
+    image_type_ = IMAGE_FILE_MACHINE_IA64;
+    stack_frame_.AddrPC.Offset     = context_.StIIP;
+    stack_frame_.AddrPC.Mode       = AddrModeFlat;
+    stack_frame_.AddrFrame.Offset  = context_.IntSp;
+    stack_frame_.AddrFrame.Mode    = AddrModeFlat;
+    stack_frame_.AddrBStore.Offset = context_.RsBSP;
+    stack_frame_.AddrBStore.Mode   = AddrModeFlat;
+    stack_frame_.AddrStack.Offset  = context_.IntSp;
+    stack_frame_.AddrStack.Mode    = AddrModeFlat;
 #else
 #   error "Platform not supported!"
 #endif
 
-    static char pSymBuf[sizeof(IMAGEHLP_SYMBOL64) + SYM_NAME_LEN * sizeof(CHAR)];
-    static PIMAGEHLP_SYMBOL64 pSym = (PIMAGEHLP_SYMBOL64)pSymBuf;
-    memset(pSym, 0, sizeof(IMAGEHLP_SYMBOL64) + SYM_NAME_LEN * sizeof(CHAR));
-    pSym->SizeOfStruct = sizeof(IMAGEHLP_SYMBOL64);
-    pSym->MaxNameLength = SYM_NAME_LEN;
+    p_sym_ = (PIMAGEHLP_SYMBOL64)p_sym_buf_;
+    memset(p_sym_, 0, sizeof(IMAGEHLP_SYMBOL64) + SYM_NAME_LEN * sizeof(CHAR));
+    p_sym_->SizeOfStruct = sizeof(IMAGEHLP_SYMBOL64);
+    p_sym_->MaxNameLength = SYM_NAME_LEN;
 
-    for (size_t frameNum = 0; frameNum < num_frames; ++frameNum)
+    for (frame_num_ = 0; frame_num_ < num_frames; ++frame_num_)
     {
         // get next stack frame (StackWalk64(), SymFunctionTableAccess64(), SymGetModuleBase64())
         // if this returns ERROR_INVALID_ADDRESS (487) or ERROR_NOACCESS (998), you can
         // assume that either you are done, or that the stack is so hosed that the next
         // deeper frame could not be found.
-        // CONTEXT need not to be supplied if imageType is IMAGE_FILE_MACHINE_I386!
-        if (!StackWalk64(imageType, h_proc_, hThread, &stack_frame, &cntx, NULL,
+        // CONTEXT need not to be supplied if image_type_ is IMAGE_FILE_MACHINE_I386!
+        if (!StackWalk64(image_type_, h_proc_, h_thread_, &stack_frame_, &cntx, NULL,
                           &SymFunctionTableAccess64, &SymGetModuleBase64, NULL))
             break;
 
-        if (stack_frame.AddrPC.Offset != 0)
+        if (stack_frame_.AddrPC.Offset != 0)
         {
-            stack_frame_t& s_entry = frames[frameNum];
+            s_entry_ = &frames[frame_num_];
 
-            if (SymGetSymFromAddr64(h_proc_, stack_frame.AddrPC.Offset, 0, pSym))
+            if (SymGetSymFromAddr64(h_proc_, stack_frame_.AddrPC.Offset, 0, p_sym_))
             {
-                DWORD64 module_start_address = SymGetModuleBase64(h_proc_, stack_frame.AddrPC.Offset);
-                if (module_start_address != 0)
-                    s_entry.address = stack_frame.AddrPC.Offset - module_start_address; // current instruction of the function
+                module_start_address_ = SymGetModuleBase64(h_proc_, stack_frame_.AddrPC.Offset);
+                if (module_start_address_ != 0)
+                    s_entry_->address = stack_frame_.AddrPC.Offset - module_start_address_; // current instruction of the function
                 else
-                    s_entry.address = 0;
-//                s_entry.address = pSym->Address; // starting instruction of the function
-                static char sym_name_[SYM_NAME_LEN];
-                if (UnDecorateSymbolName(pSym->Name, sym_name_, SYM_NAME_LEN, UNDNAME_COMPLETE)
-                    || UnDecorateSymbolName(pSym->Name, sym_name_, SYM_NAME_LEN, UNDNAME_NAME_ONLY))
+                    s_entry_->address = 0;
+//                s_entry_->address = p_sym_->Address; // starting instruction of the function
+                if (UnDecorateSymbolName(p_sym_->Name, sym_name_, SYM_NAME_LEN, UNDNAME_COMPLETE)
+                    || UnDecorateSymbolName(p_sym_->Name, sym_name_, SYM_NAME_LEN, UNDNAME_NAME_ONLY))
                 {
-                    strncpy(s_entry.function, sym_name_, MAX_FUNCTION_LEN);
+                    strncpy(s_entry_->function, sym_name_, MAX_FUNCTION_LEN);
                 }
                 else
                 {
-                    strncpy(s_entry.function, pSym->Name, MAX_FUNCTION_LEN);
+                    strncpy(s_entry_->function, p_sym_->Name, MAX_FUNCTION_LEN);
                 }
             }
             else
             {
-                strncpy(s_entry.function, "??", MAX_FUNCTION_LEN);
+                strncpy(s_entry_->function, "??", MAX_FUNCTION_LEN);
             }
 
-            static IMAGEHLP_LINE64 line;
-            memset(&line, 0, sizeof(line));
-            line.SizeOfStruct = sizeof(line);
-            static DWORD displacement;
-            if (SymGetLineFromAddr64(h_proc_, stack_frame.AddrPC.Offset, &displacement, &line) != FALSE)
+            memset(&line_, 0, sizeof(line_));
+            line_.SizeOfStruct = sizeof(line_);
+            if (SymGetLineFromAddr64(h_proc_, stack_frame_.AddrPC.Offset, &displacement_, &line_) != FALSE)
             {
-                s_entry.line = line.LineNumber;
-                strncpy(s_entry.function, line.FileName, MAX_FILENAME_LEN);
+                s_entry_->line = line_.LineNumber;
+                strncpy(s_entry_->function, line_.FileName, MAX_FILENAME_LEN);
             }
             else
             {
-                s_entry.line = 0;
-                strncpy(s_entry.function, "??", MAX_FILENAME_LEN);
+                s_entry_->line = 0;
+                strncpy(s_entry_->function, "??", MAX_FILENAME_LEN);
             }
         }
     }
 
     if (thread_id != GetCurrentThreadId())
-        ResumeThread(hThread);
-    CloseHandle(hThread);
+        ResumeThread(h_thread_);
+    CloseHandle(h_thread_);
 }
 

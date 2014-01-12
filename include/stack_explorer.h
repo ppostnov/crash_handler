@@ -1,4 +1,5 @@
 #pragma once
+#include <DbgHelp.h>
 #ifndef _WIN32
 #  error "Stack explorer is for Windows only!!"
 #endif
@@ -43,4 +44,17 @@ private:
     DWORD          sym_options_;
     MODULEENTRY32  mod_entry_;
     HANDLE         h_snap_;
+
+    HANDLE              h_thread_;
+    CONTEXT             context_;
+    STACKFRAME64        stack_frame_;
+    DWORD               image_type_;
+    char                p_sym_buf_[sizeof(IMAGEHLP_SYMBOL64) + SYM_NAME_LEN * sizeof(CHAR)];
+    PIMAGEHLP_SYMBOL64  p_sym_;
+    size_t              frame_num_;
+    stack_frame_t*      s_entry_;
+    DWORD64             module_start_address_;
+    IMAGEHLP_LINE64     line_;
+    DWORD               displacement_;
 };
+
