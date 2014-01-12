@@ -21,12 +21,26 @@ private:
 
     void sym_init();
 
-    DWORD   dwProcId_;
-    HANDLE  hProc_;
+    DWORD   dw_proc_id_;
+    HANDLE  h_proc_;
 
-    static size_t const SYM_PATH_LEN = 2048;
-    static size_t const SYM_NAME_LEN = 256;
+    static size_t const  SYM_PATH_LEN = 2048;
+    static size_t const  SYM_NAME_LEN = 256;
 
-    char sym_path_[SYM_PATH_LEN];
-    char sym_name_[SYM_NAME_LEN];
+    char  sym_path_[SYM_PATH_LEN];
+    char  sym_name_[SYM_NAME_LEN];
+
+    // auxiliary variables
+    char*   buf_;
+    size_t  buflen_;
+    size_t  len_;
+
+    static size_t const  PATH_BUF_LEN = 1024;
+
+    char           path_buf_[PATH_BUF_LEN];
+    size_t         written_;
+    HRESULT        res_;
+    DWORD          sym_options_;
+    MODULEENTRY32  mod_entry_;
+    HANDLE         h_snap_;
 };

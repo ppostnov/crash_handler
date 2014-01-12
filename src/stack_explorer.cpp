@@ -10,9 +10,9 @@
 
 
 stack_explorer::stack_explorer(DWORD dw_process_id, char const* sympath)
-    : dwProcId_(dw_process_id)
+    : dw_proc_id_(dw_process_id)
 {
-    hProc_ = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, dwProcId_);
+    h_proc_ = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, dw_proc_id_);
     sym_init();
 
     // load_modules();
@@ -20,83 +20,79 @@ stack_explorer::stack_explorer(DWORD dw_process_id, char const* sympath)
 
 stack_explorer::~stack_explorer()
 {
-    SymCleanup(hProc_);
-    if (hProc_)
-        CloseHandle(hProc_);
+    SymCleanup(h_proc_);
+    if (h_proc_)
+        CloseHandle(h_proc_);
 }
 
 void stack_explorer::sym_init()
 {
-    char*  buf    = sym_path_;
-    size_t buflen = SYM_PATH_LEN;
+    buf_    = sym_path_;
+    buflen_ = SYM_PATH_LEN;
 
-    memset(buf, '\0', buflen);
+    memset(buf_, '\0', buflen_);
 
-    buflen -= 1; // for zero ending
-    size_t len = 0;
-    len += append_path(buf, buflen, ".", 1);
+    buflen_ -= 1; // for zero ending
+    len_ = 0;
+    len_ += append_path(buf_, buflen_, ".", 1);
 
-    static size_t const path_buf_len = 1024;
-    static char path_buf[path_buf_len];
+    written_ = GetCurrentDirectoryA(PATH_BUF_LEN, path_buf_);
+    len_ += append_path(buf_ + len_, buflen_ - len_, path_buf_, PATH_BUF_LEN);
 
-    size_t written = GetCurrentDirectoryA(path_buf_len, path_buf);
-    len += append_path(buf + len, buflen - len, path_buf, path_buf_len);
-
-    written += GetModuleFileNameA(NULL, path_buf, 1024);
-    if (written > 0)
+    written_ += GetModuleFileNameA(NULL, path_buf_, 1024);
+    if (written_ > 0)
     {
-        HRESULT res = PathRemoveFileSpecA(path_buf);
-        if (S_OK == res || S_FALSE == res)
+        res_ = PathRemoveFileSpecA(path_buf_);
+        if (S_OK == res_ || S_FALSE == res_)
         {
-            written = strlen(path_buf);
-            len += append_path(buf + len, buflen - len, path_buf, written);
+            written_ = strlen(path_buf_);
+            len_ += append_path(buf_ + len_, buflen_ - len_, path_buf_, written_);
         }
     }
 
-    written = GetEnvironmentVariableA("_NT_SYMBOL_PATH", path_buf, path_buf_len);
-    len += append_path(buf + len, buflen - len, path_buf, written);
+    written_ = GetEnvironmentVariableA("_NT_SYMBOL_PATH", path_buf_, PATH_BUF_LEN);
+    len_ += append_path(buf_ + len_, buflen_ - len_, path_buf_, written_);
 
-    GetEnvironmentVariableA("_NT_ALTERNATE_SYMBOL_PATH", path_buf, path_buf_len);
-    len += append_path(buf + len, buflen - len, path_buf, written);
+    GetEnvironmentVariableA("_NT_ALTERNATE_SYMBOL_PATH", path_buf_, PATH_BUF_LEN);
+    len_ += append_path(buf_ + len_, buflen_ - len_, path_buf_, written_);
 
-    GetEnvironmentVariableA("SYSTEMROOT", path_buf, path_buf_len);
-    len += append_path(buf + len, buflen - len, path_buf, written);
-    strncat(path_buf, "\\system32;", path_buf_len - strlen(path_buf));
-    len += append_path(buf + len, buflen - len, path_buf, written);
+    GetEnvironmentVariableA("SYSTEMROOT", path_buf_, PATH_BUF_LEN);
+    len_ += append_path(buf_ + len_, buflen_ - len_, path_buf_, written_);
+    strncat(path_buf_, "\\system32;", PATH_BUF_LEN - strlen(path_buf_));
+    len_ += append_path(buf_ + len_, buflen_ - len_, path_buf_, written_);
 
-    SymInitialize(hProc_, sym_path_, FALSE); // can't do much with return value
+    SymInitialize(h_proc_, sym_path_, FALSE); // can't do much with return value
 
-    DWORD symOptions = SymGetOptions();
-    symOptions |= SYMOPT_LOAD_LINES; // Loads line number information.
-    symOptions |= SYMOPT_FAIL_CRITICAL_ERRORS; // Do not display system dialog boxes
+    sym_options_ = SymGetOptions();
+    sym_options_ |= SYMOPT_LOAD_LINES; // Loads line number information.
+    sym_options_ |= SYMOPT_FAIL_CRITICAL_ERRORS; // Do not display system dialog boxes
     // when there is a media failure such as
     // no media in a drive. Instead,
     // the failure happens silently.
-    symOptions |= SYMOPT_INCLUDE_32BIT_MODULES; // When debugging on 64-bit Windows,
+    sym_options_ |= SYMOPT_INCLUDE_32BIT_MODULES; // When debugging on 64-bit Windows,
     // include any 32-bit modules.
-    symOptions |= SYMOPT_UNDNAME; // All symbols are presented in undecorated form.
+    sym_options_ |= SYMOPT_UNDNAME; // All symbols are presented in undecorated form.
     // This option has no effect on global or local symbols
     // because they are stored undecorated.
     // This option applies only to public symbols.
-    symOptions = SymSetOptions(symOptions);
+    sym_options_ = SymSetOptions(sym_options_);
 
     // load modules symbols
-    static MODULEENTRY32 mod_entry;
-    mod_entry.dwSize = sizeof(mod_entry);
-    static HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, dwProcId_);
-    if (hSnap == INVALID_HANDLE_VALUE)
+    mod_entry_.dwSize = sizeof(mod_entry_);
+    h_snap_ = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, dw_proc_id_);
+    if (h_snap_ == INVALID_HANDLE_VALUE)
         return;
 
-    Module32First(hSnap, &mod_entry);
+    Module32First(h_snap_, &mod_entry_);
     do
     {
-        if (0 == SymLoadModule64(hProc_, 0, mod_entry.szExePath, mod_entry.szModule,
-                                 DWORD64(mod_entry.modBaseAddr), mod_entry.modBaseSize)
+        if (0 == SymLoadModule64(h_proc_, 0, mod_entry_.szExePath, mod_entry_.szModule,
+                                 DWORD64(mod_entry_.modBaseAddr), mod_entry_.modBaseSize)
                 && ERROR_SUCCESS != GetLastError())
             continue;
     }
-    while (Module32Next(hSnap, &mod_entry));
-    CloseHandle(hSnap);
+    while (Module32Next(h_snap_, &mod_entry_));
+    CloseHandle(h_snap_);
 }
 
 void stack_explorer::thread_stack(DWORD thread_id, stack_frame_t* frames, size_t num_frames,
@@ -111,7 +107,7 @@ void stack_explorer::thread_stack(DWORD thread_id, stack_frame_t* frames, size_t
     if (hThread == NULL)
         return;
 
-    if (dwProcId_ != GetCurrentProcessId() || thread_id != GetCurrentThreadId())
+    if (dw_proc_id_ != GetCurrentProcessId() || thread_id != GetCurrentThreadId())
     {
         if (SuspendThread(hThread) == -1)
             return;
@@ -121,7 +117,7 @@ void stack_explorer::thread_stack(DWORD thread_id, stack_frame_t* frames, size_t
     if (cntx == NULL)
     {
         memset(&cntx, 0, sizeof(cntx));
-        if (dwProcId_ == GetCurrentProcessId() && thread_id == GetCurrentThreadId())
+        if (dw_proc_id_ == GetCurrentProcessId() && thread_id == GetCurrentThreadId())
         {
             context.ContextFlags = CONTEXT_FULL;
             RtlCaptureContext(&context);
@@ -183,7 +179,7 @@ void stack_explorer::thread_stack(DWORD thread_id, stack_frame_t* frames, size_t
         // assume that either you are done, or that the stack is so hosed that the next
         // deeper frame could not be found.
         // CONTEXT need not to be supplied if imageType is IMAGE_FILE_MACHINE_I386!
-        if (!StackWalk64(imageType, hProc_, hThread, &stack_frame, &cntx, NULL,
+        if (!StackWalk64(imageType, h_proc_, hThread, &stack_frame, &cntx, NULL,
                           &SymFunctionTableAccess64, &SymGetModuleBase64, NULL))
             break;
 
@@ -191,9 +187,9 @@ void stack_explorer::thread_stack(DWORD thread_id, stack_frame_t* frames, size_t
         {
             stack_frame_t& s_entry = frames[frameNum];
 
-            if (SymGetSymFromAddr64(hProc_, stack_frame.AddrPC.Offset, 0, pSym))
+            if (SymGetSymFromAddr64(h_proc_, stack_frame.AddrPC.Offset, 0, pSym))
             {
-                DWORD64 module_start_address = SymGetModuleBase64(hProc_, stack_frame.AddrPC.Offset);
+                DWORD64 module_start_address = SymGetModuleBase64(h_proc_, stack_frame.AddrPC.Offset);
                 if (module_start_address != 0)
                     s_entry.address = stack_frame.AddrPC.Offset - module_start_address; // current instruction of the function
                 else
@@ -219,7 +215,7 @@ void stack_explorer::thread_stack(DWORD thread_id, stack_frame_t* frames, size_t
             memset(&line, 0, sizeof(line));
             line.SizeOfStruct = sizeof(line);
             static DWORD displacement;
-            if (SymGetLineFromAddr64(hProc_, stack_frame.AddrPC.Offset, &displacement, &line) != FALSE)
+            if (SymGetLineFromAddr64(h_proc_, stack_frame.AddrPC.Offset, &displacement, &line) != FALSE)
             {
                 s_entry.line = line.LineNumber;
                 strncpy(s_entry.function, line.FileName, MAX_FILENAME_LEN);
