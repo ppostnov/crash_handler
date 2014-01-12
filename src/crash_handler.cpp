@@ -295,7 +295,7 @@ char const* const dump_filename()
 void write_stacks(std::ostream& ostr)
 {
     mem->cur_pid = current_process_id();
-    stack_explorer* stexp = new(mem->stexp_place) stack_explorer(mem->cur_pid);
+    static stack_explorer* stexp = new(mem->stexp_place) stack_explorer(mem->cur_pid);
 
     ostr << "==============" << std::endl;
     ostr << "Threads Stacks" << std::endl;

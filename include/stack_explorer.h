@@ -51,9 +51,7 @@ private:
     DWORD               image_type_;
     char                p_sym_buf_[sizeof(IMAGEHLP_SYMBOL64) + SYM_NAME_LEN * sizeof(CHAR)];
     PIMAGEHLP_SYMBOL64  p_sym_;
-    size_t              frame_num_;
     stack_frame_t*      s_entry_;
-    DWORD64             module_start_address_;
     IMAGEHLP_LINE64     line_;
     DWORD               displacement_;
 };

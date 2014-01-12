@@ -167,7 +167,7 @@ void stack_explorer::thread_stack(DWORD thread_id, stack_frame_t* frames, size_t
     p_sym_->SizeOfStruct = sizeof(IMAGEHLP_SYMBOL64);
     p_sym_->MaxNameLength = SYM_NAME_LEN;
 
-    for (frame_num_ = 0; frame_num_ < num_frames; ++frame_num_)
+    for (static size_t frame_num = 0; frame_num < num_frames; ++frame_num)
     {
         // get next stack frame (StackWalk64(), SymFunctionTableAccess64(), SymGetModuleBase64())
         // if this returns ERROR_INVALID_ADDRESS (487) or ERROR_NOACCESS (998), you can
@@ -180,13 +180,13 @@ void stack_explorer::thread_stack(DWORD thread_id, stack_frame_t* frames, size_t
 
         if (stack_frame_.AddrPC.Offset != 0)
         {
-            s_entry_ = &frames[frame_num_];
+            s_entry_ = &frames[frame_num];
 
             if (SymGetSymFromAddr64(h_proc_, stack_frame_.AddrPC.Offset, 0, p_sym_))
             {
-                module_start_address_ = SymGetModuleBase64(h_proc_, stack_frame_.AddrPC.Offset);
-                if (module_start_address_ != 0)
-                    s_entry_->address = stack_frame_.AddrPC.Offset - module_start_address_; // current instruction of the function
+                DWORD64 module_start_address = SymGetModuleBase64(h_proc_, stack_frame_.AddrPC.Offset);
+                if (module_start_address != 0)
+                    s_entry_->address = stack_frame_.AddrPC.Offset - module_start_address; // current instruction of the function
                 else
                     s_entry_->address = 0;
 //                s_entry_->address = p_sym_->Address; // starting instruction of the function
