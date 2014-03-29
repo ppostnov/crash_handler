@@ -18,6 +18,11 @@ inline proc_id_t current_process_id()
     return proc_id_t(GetCurrentProcessId());
 }
 
+inline proc_id_t current_thread_id ()
+{
+    return proc_id_t(GetCurrentThreadId());
+}
+
 #elif __linux__
 
 inline proc_id_t current_process_id()
@@ -25,6 +30,11 @@ inline proc_id_t current_process_id()
     return proc_id_t(getpid());
 }
 
+
+inline proc_id_t current_thread_id ()
+{
+    return proc_id_t(gettid());
+}
 #endif
 
 } // namespace process_monitor

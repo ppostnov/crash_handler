@@ -33,6 +33,7 @@ struct module
 
 
 inline proc_id_t current_process_id();
+inline proc_id_t current_thread_id ();
 
 } // namespace process_monitor
 

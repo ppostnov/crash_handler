@@ -15,6 +15,7 @@
 #include "crash_handler.h"
 #include "process_monitor.h"
 #include "stack_explorer.h"
+#include "util.h"
 
 
 namespace crash_handler
@@ -308,6 +309,7 @@ char const* const dump_filename()
 void write_stacks(std::ostream& ostr)
 {
     mem->cur_pid = current_process_id();
+    LOG(mem->cur_pid);
     static stack_explorer* stexp = new(mem->stexp_place) stack_explorer(mem->cur_pid);
 
     ostr << "==============" << std::endl;
@@ -338,6 +340,7 @@ void write_stacks(std::ostream& ostr)
                         static stack_frame_t const* stf = (mem->stack_buf + k);
                         if (0 == stf)
                             break;
+                        LOG(stf->address  << "\t"       << std::dec     << std::left << stf->function << "()\t"     << stf->file    << ":" << stf->line);
                         ostr << std::hex     << std::right << std::setw(8) << std::setfill('0')
                             << stf->address  << "\t"       << std::dec     << std::left
                             << stf->function << "()\t"     << stf->file    << ":"
@@ -400,6 +403,7 @@ void report_and_exit()
 
     if (mem->exception_record.ExceptionAddress == NULL)
         fill_exception_pointers();
+    mem->crashed_tid = current_thread_id();
 
     mem->ofstr.open(dump_filename());
 

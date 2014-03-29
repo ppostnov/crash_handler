@@ -52,10 +52,10 @@ void stack_explorer::sym_init()
     written_ = GetEnvironmentVariableA("_NT_SYMBOL_PATH", path_buf_, PATH_BUF_LEN);
     len_ += append_path(buf_ + len_, buflen_ - len_, path_buf_, written_);
 
-    GetEnvironmentVariableA("_NT_ALTERNATE_SYMBOL_PATH", path_buf_, PATH_BUF_LEN);
+    written_ = GetEnvironmentVariableA("_NT_ALTERNATE_SYMBOL_PATH", path_buf_, PATH_BUF_LEN);
     len_ += append_path(buf_ + len_, buflen_ - len_, path_buf_, written_);
 
-    GetEnvironmentVariableA("SYSTEMROOT", path_buf_, PATH_BUF_LEN);
+    written_ = GetEnvironmentVariableA("SYSTEMROOT", path_buf_, PATH_BUF_LEN);
     len_ += append_path(buf_ + len_, buflen_ - len_, path_buf_, written_);
     strncat(path_buf_, "\\system32;", PATH_BUF_LEN - strlen(path_buf_));
     len_ += append_path(buf_ + len_, buflen_ - len_, path_buf_, written_);

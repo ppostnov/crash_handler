@@ -4,7 +4,6 @@ int main(int argc, char* argv[])
 {
     crash_handler::handler ch;
 
-    int* a = 0;
-    *a = 2;
+    throw "Hello";
     return 0;
 }
