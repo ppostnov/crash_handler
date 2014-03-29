@@ -1,5 +1,9 @@
+#include <iostream>
+
 #include <Windows.h>
 #include <TlHelp32.h>
+#include <Psapi.h>
+#pragma comment(lib, "Psapi.lib")
 #include <csignal>
 #include <ctime>
 #include <fstream>
@@ -44,7 +48,7 @@ char const* const ERROR_MESSAGES[] = {
     "SIGABRT caught"};
 
 static char const    PREFIX[]   = "crash_";
-static size_t const  PREFIX_LEN = sizeof(PREFIX) / sizeof(PREFIX[0]);
+static size_t const  PREFIX_LEN = 6;
 
 static size_t const  DUMP_FILENAME_SIZE = 1024;
 static size_t const  EXTRA_MESSAGE_SIZE = 4096;
@@ -105,7 +109,7 @@ struct mem_store
 
     char              stexp_place[sizeof(stack_explorer)];
 };
-mem_store*  mem;
+static mem_store*  mem;
 
 handler::handler()
 {
@@ -279,16 +283,25 @@ char const* const dump_filename()
     memset(mem->dumpfile, 0     , DUMP_FILENAME_SIZE);
     memcpy(mem->dumpfile, PREFIX, PREFIX_LEN        );
 
-    mem->name_len = GetModuleFileName(NULL, mem->dumpfile + 12, 1012);
-    
+    static size_t const buf_size = 1024;
+    static char buf[buf_size];
+    memset(buf, 0, buf_size);
+
+    mem->name_len = GetModuleFileName(NULL, buf, buf_size);
+    static char const* basename = strrchr(buf, '\\') + 1;
+    mem->name_len -= (basename - buf);
+    memcpy(mem->dumpfile + PREFIX_LEN, basename, DUMP_FILENAME_SIZE - PREFIX_LEN);
+
+    DWORD last_err = GetLastError();
+
     mem->suffix_len = DUMP_FILENAME_SIZE - (PREFIX_LEN + mem->name_len);
-    if (18 < mem->suffix_len)
-        mem->suffix_len = 18;
+    if (19 < mem->suffix_len)
+        mem->suffix_len = 19;
 
     mem->time_t_buf = time(NULL);
     localtime_s(&mem->tm_buf, &mem->time_t_buf);
-    strftime(mem->dumpfile + PREFIX_LEN + mem->name_len, mem->suffix_len, "%Y-%m-%d_%H%M%S", &mem->tm_buf);
-    
+    strftime(mem->dumpfile + PREFIX_LEN + mem->name_len, mem->suffix_len, "_%Y-%m-%d_%H%M%S", &mem->tm_buf);
+
     return mem->dumpfile;
 }
 
@@ -382,6 +395,9 @@ void write_modules(std::ostream& ostr)
 
 void report_and_exit()
 {
+    int tmp_var;
+    std::cin >> tmp_var;
+
     if (mem->exception_record.ExceptionAddress == NULL)
         fill_exception_pointers();
 
@@ -390,15 +406,15 @@ void report_and_exit()
     mem->ofstr << ERROR_MESSAGES[mem->err_msg_index] << "\n";
     mem->ofstr << mem->extra_message << "\n";
     mem->ofstr << "Crashed thread: " << GetCurrentThreadId() << "\n";
-    
+
     write_stacks (mem->ofstr);
     write_modules(mem->ofstr);
-    
+
     mem->ofstr.close();
 
     if (IsDebuggerPresent())
         __debugbreak();
-    
+
     TerminateProcess(GetCurrentProcess(), 1);
 }
 
