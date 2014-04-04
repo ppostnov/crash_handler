@@ -20,6 +20,7 @@
 
 namespace crash_handler
 {
+
 using namespace process_monitor;
 
 char const* const ERROR_MESSAGES[] = {
@@ -112,7 +113,7 @@ struct mem_store
 };
 static mem_store*  mem;
 
-handler::handler()
+handler::handler(callbacks const* cbs)
 {
     mem = new mem_store;
 

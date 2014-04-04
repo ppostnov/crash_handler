@@ -18,8 +18,8 @@
 #endif
 
 #ifdef CRASH_HANDLER_LIB
-#   define MACRO_API DEF_EXPORT
+#   define CRASH_HANDLER_API DEF_EXPORT
 #else
-#   define MACRO_API DEF_IMPORT
+#   define CRASH_HANDLER_API DEF_IMPORT
 #endif
 

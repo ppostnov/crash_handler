@@ -88,6 +88,7 @@
   <ItemGroup>
     <ClCompile Include="..\src\crash_handler.cpp" />
     <ClCompile Include="..\src\stack_explorer.cpp" />
+    <ClCompile Include="..\src\util.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
