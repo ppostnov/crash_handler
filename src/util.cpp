@@ -7,7 +7,6 @@ path_composer::path_composer()
     clear();
 }
 
-
 uint16_t path_composer::append(char const* src, uint16_t len)
 {
     if (0 == len)
