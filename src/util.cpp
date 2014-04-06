@@ -5,6 +5,8 @@ namespace util
 path_composer::path_composer()
 {
     clear();
+    fixed_string<1024>  fsi;
+    fsi = "Hello, world!!";
 }
 
 uint16_t path_composer::append(char const* src, uint16_t len)

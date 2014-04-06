@@ -1,4 +1,5 @@
 #pragma once
+#include <assert.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -24,14 +25,15 @@ private:
 };
 
 template <int str_len>
-struct fixed_string_impl
+struct fixed_string
 {
-    fixed_string_impl()
+    fixed_string()
     {
         clear();
     }
 
-    fixed_string_impl(fixed_string_impl<other_str_len> const& other)
+    template <int other_str_len>
+    fixed_string(fixed_string<other_str_len> const& other)
     {
         assert(other_str_len == str_len);
 
@@ -39,7 +41,8 @@ struct fixed_string_impl
         str_[str_len + 1] = 0;
     }
 
-    fixed_string_impl& operator= (fixed_string_impl<other_str_len> const& other)
+    template <int other_str_len>
+    fixed_string& operator= (fixed_string<other_str_len> const& other)
     {
         assert(other_str_len <= str_len);
 
@@ -48,11 +51,11 @@ struct fixed_string_impl
         memset(eos(), 0, free());
     }
 
-    fixed_string_impl& operator= (char const* src)
+    fixed_string& operator= (char const* src)
     {
         char const* eos_ = src;
         while (*eos_++);
-        len = (eos_ - src - 1);
+        uint16_t len = (eos_ - src - 1);
 
         assert(len <= str_len);
 
@@ -119,7 +122,7 @@ private:
 
     char* eos() const
     {
-        return str_ + len_;
+        return (char*)(str_ + len_);
     }
 
     char      str_[str_len + 1];
