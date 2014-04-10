@@ -20,13 +20,16 @@ struct handler::impl
 
     void report_and_exit();
 
+private:
+    void dumpfile_append_date();
+
 protected:
     virtual void install_handlers() = 0;
     virtual void remove_handlers () = 0;
+    virtual void get_stack       () = 0;
 
 protected:
     static uint16_t const  DUMP_FILENAME_SIZE = 1024;
-    static uint16_t const  TIME_BUF_SIZE      =   20;
 
     util::fixed_string<DUMP_FILENAME_SIZE>  dumpfile;
 
@@ -34,7 +37,6 @@ protected:
 
     time_t      time_t_buf;
     struct tm   tm_buf;
-    char        time_buf[TIME_BUF_SIZE];
 
     primary_handler_f   ph_;
 };
@@ -46,13 +48,14 @@ struct win_impl : handler::impl
     win_impl(primary_handler_f const* ph);
     ~win_impl();
 
+protected:
     void install_handlers() override;
     void remove_handlers () override;
-
-
-    typedef void (*signal_handler_function_t)(int);
+    void get_stack       () override;
 
 protected:
+    typedef void (*signal_handler_function_t)(int);
+
     int                           prev_crt_assert;
     int                           prev_crt_error;
     _purecall_handler             prev_purecall_handler;
@@ -76,8 +79,10 @@ struct linux_impl : handler::impl
     linux_impl(primary_handler_f const* ph);
     ~linux_impl();
 
+protected:
     void install_handlers() override;
     void remove_handlers () override;
+    void get_stack       () override;
 };
 
 #elif

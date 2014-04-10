@@ -1,11 +1,6 @@
 
 #include <csignal>
-#include <ctime>
 #include <fstream>
-#include <iomanip>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <functional>
 
 #include "crash_handler.h"
 #include "crash_handler_impl.h"
@@ -25,6 +20,33 @@ static uint16_t          err_code;
 
 static handler::impl*    glob_impl;
 
+
+void fill_exception_pointers()
+{
+    static EXCEPTION_RECORD& exception_record  = exception_record;
+    static CONTEXT         & exception_context = exception_context;
+
+    memset(&exception_context, 0, sizeof(CONTEXT));
+    exception_context.ContextFlags = CONTEXT_FULL;
+
+#ifdef _X86_
+    RtlCaptureContext(&exception_context);
+#elif defined (_IA64_) || defined (_AMD64_)
+    // Need to fill up the Context in IA64 and AMD64.
+    RtlCaptureContext(&exception_context);
+#else  // defined (_IA64_) || defined (_AMD64_)
+    ZeroMemory(&exception_context, sizeof(exception_context));
+#endif  // defined (_IA64_) || defined (_AMD64_)
+
+    memset(&exception_record, 0, sizeof(EXCEPTION_RECORD));
+#ifdef _M_IX86
+    exception_record.ExceptionAddress = (PVOID)exception_context.Eip;
+#elif _M_X64
+    exception_record.ExceptionAddress = (PVOID)exception_context.Rip;
+#elif _M_IA64
+    exception_record.ExceptionAddress = (PVOID)exception_context.StIIP;
+#endif
+}
 
 LONG WINAPI catch_seh(PEXCEPTION_POINTERS pExceptionPtrs)
 {
@@ -83,6 +105,7 @@ void __cdecl catch_invalid_parameter(wchar_t const* expression, wchar_t const* f
     err_code = 21;
     swprintf_s((wchar_t*)extra_message, EXTRA_MESSAGE_SIZE / sizeof(wchar_t), L"Func: %s. File: %s. Line: %d. Expression: %s", function, file, line, expression);
 
+    fill_exception_pointers();
     glob_impl->report_and_exit();
 }
 
@@ -97,151 +120,80 @@ void __cdecl catch_terminate_unexpected_purecall()
 void catch_signals(int code)
 {
     err_code = 23;
+    fill_exception_pointers();
     glob_impl->report_and_exit();
 }
-/****
-void fill_exception_pointers()
+
+void win_impl::get_stack()
 {
-    static EXCEPTION_RECORD & exception_record  = mem->exception_record;
-    static CONTEXT          & exception_context = mem->exception_context;
+    info.code = (error_code)err_code;
 
-    memset(&exception_context, 0, sizeof(CONTEXT));
-    exception_context.ContextFlags = CONTEXT_FULL;
+    static stack_explorer* stexp = new(stexp_place) stack_explorer(info.pid);
 
-#ifdef _X86_
-    RtlCaptureContext(&exception_context);
-#elif defined (_IA64_) || defined (_AMD64_)
-    // Need to fill up the Context in IA64 and AMD64.
-    RtlCaptureContext(&exception_context);
-#else  // defined (_IA64_) || defined (_AMD64_)
-    ZeroMemory(&exception_context, sizeof(exception_context));
-#endif  // defined (_IA64_) || defined (_AMD64_)
-
-    memset(&exception_record, 0, sizeof(EXCEPTION_RECORD));
-#ifdef _M_IX86
-    exception_record.ExceptionAddress = (PVOID)exception_context.Eip;
-#elif _M_X64
-    exception_record.ExceptionAddress = (PVOID)exception_context.Rip;
-#elif _M_IA64
-    exception_record.ExceptionAddress = (PVOID)exception_context.StIIP;
-#endif
-}
-
-char const* const dump_filename()
-{
-    memset(mem->dumpfile, 0     , DUMP_FILENAME_SIZE);
-    memcpy(mem->dumpfile, PREFIX, PREFIX_LEN        );
-
-    static size_t const buf_size = 1024;
-    static char buf[buf_size];
-    memset(buf, 0, buf_size);
-
-    mem->name_len = GetModuleFileName(NULL, buf, buf_size);
-    static char const* basename = strrchr(buf, '\\') + 1;
-    mem->name_len -= (basename - buf);
-    memcpy(mem->dumpfile + PREFIX_LEN, basename, DUMP_FILENAME_SIZE - PREFIX_LEN);
-
-    DWORD last_err = GetLastError();
-
-    mem->suffix_len = DUMP_FILENAME_SIZE - (PREFIX_LEN + mem->name_len);
-    if (19 < mem->suffix_len)
-        mem->suffix_len = 19;
-
-    mem->time_t_buf = time(NULL);
-    localtime_s(&mem->tm_buf, &mem->time_t_buf);
-    strftime(mem->dumpfile + PREFIX_LEN + mem->name_len, mem->suffix_len, "_%Y-%m-%d_%H%M%S", &mem->tm_buf);
-
-    return mem->dumpfile;
-}
-
-void write_stacks(std::ostream& ostr)
-{
-    mem->cur_pid = current_process_id();
-    LOG(mem->cur_pid);
-    static stack_explorer* stexp = new(mem->stexp_place) stack_explorer(mem->cur_pid);
-
-    ostr << "==============" << std::endl;
-    ostr << "Threads Stacks" << std::endl;
-    ostr << "==============" << std::endl;
-    ostr << "RVA\tFunction\tFile:Line" << std::endl;
-
-    mem->hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, mem->cur_pid);
-    if (mem->hSnapshot != INVALID_HANDLE_VALUE)
+    hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, info.pid);
+    if (hSnapshot != INVALID_HANDLE_VALUE)
     {
-        mem->te.dwSize = sizeof(mem->te);
-        if (Thread32First(mem->hSnapshot, &mem->te))
+        te.dwSize = sizeof(te);
+        if (Thread32First(hSnapshot, &te))
         {
             do
             {
-                if (mem->te.th32OwnerProcessID == mem->cur_pid)
+                if (te.th32OwnerProcessID == info.pid)
                 {
-                    mem->cntx = NULL;
-                    if (mem->te.th32ThreadID == mem->crashed_tid)
-                        mem->cntx = &mem->exception_context;
-                    //stexp->thread_stack(mem->te.th32ThreadID, mem->stack_buf, STACK_BUF_SIZE, mem->cntx);
+                    cntx = NULL;
+                    if (te.th32ThreadID == info.crashed_tid)
+                        cntx = &exception_context;
+                    //stexp->thread_stack(te.th32ThreadID, info.stack, STACK_SIZE, cntx);
 
-                    ostr << std::endl;
-                    ostr << "Thread id: " << mem->te.th32OwnerProcessID << std::endl;
-                    ostr << "Stack:" << std::endl;
-                    for (static size_t k = 0; k < STACK_BUF_SIZE; ++k)
+                    for (static size_t k = 0; k < STACK_SIZE; ++k)
                     {
-                        static stack_frame_t const* stf = (mem->stack_buf + k);
+                        static stack_frame_t const* stf = (info.stack + k);
                         if (0 == stf)
                             break;
-                        LOG(stf->address << "\t" << std::dec << std::left << stf->function.c_str() << "()\t" << stf->file.c_str() << ":" << stf->line);
-                        ostr << std::hex     << std::right << std::setw(8) << std::setfill('0')
-                            << stf->address  << "\t"       << std::dec     << std::left
-                            << stf->function.c_str() << "()\t"     << stf->file.c_str()    << ":"
-                            << stf->line     << std::endl;
                     }
                 }
-                mem->te.dwSize = sizeof(mem->te);
+                te.dwSize = sizeof(te);
             }
-            while (Thread32Next(mem->hSnapshot, &mem->te));
+            while (Thread32Next(hSnapshot, &te));
         }
-        CloseHandle(mem->hSnapshot);
+        CloseHandle(hSnapshot);
     }
-    else
-        ostr << "CreateToolhelp32Snapshot failed" << std::endl;
-
-    ostr << "==============" << std::endl;
-
-    ostr.flush();
 
     // TODO: not sure if this is a good idea
     stexp->~stack_explorer();
 }
 
+/****
 void write_modules(std::ostream& ostr)
 {
-    mem->mod_entry.dwSize = sizeof(mem->mod_entry);
+    mod_entry.dwSize = sizeof(mod_entry);
 
-    mem->cur_pid = current_process_id();
-    mem->hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, mem->cur_pid);
-    if (mem->hSnapshot == INVALID_HANDLE_VALUE)
+    cur_pid = current_process_id();
+    hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, cur_pid);
+    if (hSnapshot == INVALID_HANDLE_VALUE)
         return;
 
     ostr << "==============" << std::endl << "Loaded Modules" << std::endl << "==============" << std::endl;
 
-    Module32First(mem->hSnapshot, &mem->mod_entry);
+    Module32First(hSnapshot, &mod_entry);
     do
     {
-        ostr << mem->mod_entry.szModule << std::endl << "\t" << mem->mod_entry.szExePath << std::endl << mem->mod_entry.modBaseAddr << std::endl;
+        ostr << mod_entry.szModule << std::endl << "\t" << mod_entry.szExePath << std::endl << mod_entry.modBaseAddr << std::endl;
         static int64_t mtime = 0;
         static struct _stat file_stat;
-        if (!_stat(mem->mod_entry.szExePath, &(file_stat)))
+        if (!_stat(mod_entry.szExePath, &(file_stat)))
             mtime = file_stat.st_mtime;
 
 #ifdef _WIN32
-        localtime_s(&mem->tm_buf, &mem->time_t_buf);
+        localtime_s(&tm_buf, &time_t_buf);
 #elif __linux__
-        memcpy(&mem->tm_buf, localtime(&mem->time_t_buf), sizeof(mem->tm_buf));
+        memcpy(&tm_buf, localtime(&time_t_buf), sizeof(tm_buf));
 #endif
-        strftime(mem->time_buf, TIME_BUF_SIZE, "%Y-%m-%d %H:%M:%S", &mem->tm_buf);
-        ostr << "\t" << mem->time_buf << std::endl;
+        strftime(time_buf, TIME_BUF_SIZE, "%Y-%m-%d %H:%M:%S", &tm_buf);
+        ostr << "\t" << time_buf << std::endl;
     }
-    while (Module32Next(mem->hSnapshot, &mem->mod_entry));
-    CloseHandle(mem->hSnapshot);
+    while (Module32Next(hSnapshot, &mod_entry));
+    CloseHandle(hSnapshot);
 }
 ****/
 
