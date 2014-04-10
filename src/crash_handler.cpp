@@ -44,7 +44,7 @@ void handler::impl::report_and_exit()
     if (!ph_ || !ph_(info))
     {
         dumpfile_append_date();
-        // print
+        TODO: print
     }
 
     if (IsDebuggerPresent())
@@ -60,6 +60,9 @@ void handler::impl::dumpfile_append_date()
     static uint16_t const  buf_size = 20;
     static char buf[buf_size];
     memset(buf, 0, buf_size);
+
+    static time_t     time_t_buf;
+    static struct tm  tm_buf;
 
     time_t_buf = time(NULL);
     localtime_s(&tm_buf, &time_t_buf);

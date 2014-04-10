@@ -131,7 +131,7 @@ void win_impl::get_context()
 
 void win_impl::get_stack()
 {
-    static uint16_t  thr_num = 0;
+    thread_num = 0;
 
     hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, info.pid);
     if (hProc == NULL)
@@ -151,35 +151,11 @@ void win_impl::get_stack()
         {
             if (te.th32OwnerProcessID == info.pid)
             {
-                // stexp->thread_stack(te.th32ThreadID, info.stack[thr_num], STACK_SIZE, cntx);
-
                 hThread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
                                      FALSE, te.th32ThreadID);
 
                 if (hThread == NULL)
                     continue;
-
-                if (te.th32ThreadID == info.crashed_tid)
-                    cntx = exception_context;
-                else
-                {
-                    memset(&cntx, 0, sizeof(cntx));
-
-                    if (te.th32ThreadID == current_thread_id())
-                    {
-                        cntx.ContextFlags = CONTEXT_FULL;
-                        RtlCaptureContext(&cntx);
-                    }
-                    else
-                    {
-                        cntx.ContextFlags = CONTEXT_FULL;
-                        if (!GetThreadContext(hThread, &cntx)) // this function doesn't work for current thread
-                        {
-                            CloseHandle(hThread);
-                            continue;
-                        }
-                    }
-                }
 
                 if (te.th32ThreadID != current_thread_id())
                 {
@@ -189,6 +165,24 @@ void win_impl::get_stack()
                         continue;
                     }
 
+                }
+
+                if (te.th32ThreadID == info.crashed_tid)
+                    cntx = exception_context;
+                else
+                {
+                    cntx.ContextFlags = CONTEXT_FULL;
+
+                    if (te.th32ThreadID == current_thread_id())
+                        RtlCaptureContext(&cntx);
+                    else
+                    {
+                        if (!GetThreadContext(hThread, &cntx)) // this function doesn't work for current thread
+                        {
+                            CloseHandle(hThread);
+                            continue;
+                        }
+                    }
                 }
 
 #ifdef _M_IX86
@@ -222,7 +216,7 @@ void win_impl::get_stack()
 #   error "Platform not supported!"
 #endif
 
-                for (static size_t frame_num = 0; frame_num < STACK_SIZE; ++frame_num)
+                for (frame_num = 0; frame_num < STACK_SIZE; ++frame_num)
                 {
                     // get next stack frame (StackWalk64(), SymFunctionTableAccess64(), SymGetModuleBase64())
                     // if this returns ERROR_INVALID_ADDRESS (487) or ERROR_NOACCESS (998), you can
@@ -232,18 +226,33 @@ void win_impl::get_stack()
                     if (!StackWalk64(image_type, hProc, hThread, &stack_frame, &cntx, NULL,
                                       &SymFunctionTableAccess64, &SymGetModuleBase64, NULL))
                         break;
+
+                    if (stack_frame.AddrPC.Offset != 0)
+                    {
+                        frame = &info.stack[thread_num][frame_num];
+
+                        module_start_address = SymGetModuleBase64(hProc, stack_frame.AddrPC.Offset);
+
+                        if (module_start_address != 0)
+                            frame->address = stack_frame.AddrPC.Offset - module_start_address; // current instruction of the function
+                        else
+                            frame->address = 0;
+                    }
                 }
 
                 if (te.th32ThreadID != current_thread_id())
                     ResumeThread(hThread);
                 CloseHandle(hThread);
 
+                ++thread_num;
             }
             te.dwSize = sizeof(te);
         }
         while (Thread32Next(hSnapshot, &te));
     }
+
     CloseHandle(hSnapshot);
+    CloseHandle(hProc);
 }
 
 /****
@@ -286,7 +295,7 @@ win_impl::win_impl(primary_handler_f const* hp)
     memset(&exception_record , 0, sizeof(exception_record ));
     memset(&exception_context, 0, sizeof(exception_context));
     memset(extra_message     , 0, EXTRA_MESSAGE_SIZE       );
-    memset(&mod_entry        , 0, sizeof(mod_entry        ));
+    //memset(&mod_entry        , 0, sizeof(mod_entry        ));
     memset(&cntx             , 0, sizeof(cntx             ));
 
     prev_crt_assert            = 0;

@@ -31,14 +31,9 @@ protected:
 
 protected:
     static uint16_t const  DUMP_FILENAME_SIZE = 1024;
-
     util::fixed_string<DUMP_FILENAME_SIZE>  dumpfile;
 
-    crash_info  info;
-
-    time_t      time_t_buf;
-    struct tm   tm_buf;
-
+    crash_info          info;
     primary_handler_f   ph_;
 };
 
@@ -72,13 +67,15 @@ protected:
     HANDLE            hThread;
     THREADENTRY32     te;
     CONTEXT           cntx;
-    MODULEENTRY32     mod_entry;
+    //MODULEENTRY32     mod_entry;
 
     STACKFRAME64      stack_frame;
     DWORD             image_type;
-    stack_frame_t*    s_entry;
-    IMAGEHLP_LINE64   line;
-    DWORD             displacement;
+
+    uint16_t          thread_num;
+    uint16_t          frame_num;
+    stack_frame_t*    frame;
+    DWORD64           module_start_address;
 };
 
 /*#elif __linux__
