@@ -5,7 +5,6 @@
 #   include <stdlib.h>
 #   include <Windows.h>
 #   include <Psapi.h>
-#   pragma comment(lib, "Psapi.lib")
 #   include <TlHelp32.h>
 #   include <eh.h>
 #   include "stack_explorer.h"
@@ -16,7 +15,7 @@ namespace crash_handler
 struct handler::impl
 {
     impl(primary_handler_f const* ph);
-    virtual ~impl();
+    virtual ~impl() { }
 
     void report_and_exit();
 
@@ -24,8 +23,8 @@ private:
     void dumpfile_append_date();
 
 protected:
-    virtual void install_handlers() = 0;
-    virtual void remove_handlers () = 0;
+    virtual void install_handlers() { }
+    virtual void remove_handlers () { }
     virtual void get_context     () = 0;
     virtual void get_stack       () = 0;
 

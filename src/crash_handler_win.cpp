@@ -2,6 +2,9 @@
 #include <csignal>
 #include <fstream>
 
+#pragma comment(lib, "Psapi.lib")
+#pragma comment(lib, "DbgHelp.lib")
+
 #include "crash_handler.h"
 #include "crash_handler_impl.h"
 #include "stack_explorer.h"
@@ -310,6 +313,11 @@ win_impl::win_impl(primary_handler_f const* hp)
     hSnapshot   = 0;
     hProc       = 0;
     hThread     = 0;
+}
+
+win_impl::~win_impl()
+{
+    remove_handlers();
 }
 
 void win_impl::install_handlers()

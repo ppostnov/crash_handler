@@ -11,10 +11,6 @@ handler::impl::impl(primary_handler_f const* ph)
     if (ph)
         ph_ = *ph;
 
-    memset(&info      , 0, sizeof(info      ));
-    memset(&time_t_buf, 0, sizeof(time_t_buf));
-    memset(&tm_buf    , 0, sizeof(tm_buf    ));
-
     dumpfile.append("crash_");
 
     static uint16_t const buf_size = 1024;
@@ -25,11 +21,6 @@ handler::impl::impl(primary_handler_f const* ph)
     dumpfile.append(strrchr(buf, '\\') + 1);
 
     install_handlers();
-}
-
-handler::impl::~impl()
-{
-    remove_handlers();
 }
 
 void handler::impl::report_and_exit()
@@ -44,7 +35,7 @@ void handler::impl::report_and_exit()
     if (!ph_ || !ph_(info))
     {
         dumpfile_append_date();
-        TODO: print
+        //TODO: print
     }
 
     if (IsDebuggerPresent())

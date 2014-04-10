@@ -66,6 +66,8 @@ struct crash_info
     error_code     code;
 
     std::array<thread_stack_t, THREADS_NUM>  stack;
+
+    crash_info(): pid(0), crashed_tid(0), code((error_code)-1) { }
 };
 
 typedef bool (*primary_handler_f)(crash_info const&);
