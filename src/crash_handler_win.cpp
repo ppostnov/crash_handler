@@ -124,43 +124,126 @@ void catch_signals(int code)
     glob_impl->report_and_exit();
 }
 
-void win_impl::get_stack()
+void win_impl::get_context()
 {
     info.code = (error_code)err_code;
+}
 
-    static stack_explorer* stexp = new(stexp_place) stack_explorer(info.pid);
+void win_impl::get_stack()
+{
+    static uint16_t  thr_num = 0;
+
+    hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, info.pid);
+    if (hProc == NULL)
+        return;
 
     hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, info.pid);
-    if (hSnapshot != INVALID_HANDLE_VALUE)
+    if (hSnapshot == INVALID_HANDLE_VALUE)
     {
-        te.dwSize = sizeof(te);
-        if (Thread32First(hSnapshot, &te))
-        {
-            do
-            {
-                if (te.th32OwnerProcessID == info.pid)
-                {
-                    cntx = NULL;
-                    if (te.th32ThreadID == info.crashed_tid)
-                        cntx = &exception_context;
-                    //stexp->thread_stack(te.th32ThreadID, info.stack, STACK_SIZE, cntx);
-
-                    for (static size_t k = 0; k < STACK_SIZE; ++k)
-                    {
-                        static stack_frame_t const* stf = (info.stack + k);
-                        if (0 == stf)
-                            break;
-                    }
-                }
-                te.dwSize = sizeof(te);
-            }
-            while (Thread32Next(hSnapshot, &te));
-        }
-        CloseHandle(hSnapshot);
+        CloseHandle(hProc);
+        return;
     }
 
-    // TODO: not sure if this is a good idea
-    stexp->~stack_explorer();
+    te.dwSize = sizeof(te);
+    if (Thread32First(hSnapshot, &te))
+    {
+        do
+        {
+            if (te.th32OwnerProcessID == info.pid)
+            {
+                // stexp->thread_stack(te.th32ThreadID, info.stack[thr_num], STACK_SIZE, cntx);
+
+                hThread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
+                                     FALSE, te.th32ThreadID);
+
+                if (hThread == NULL)
+                    continue;
+
+                if (te.th32ThreadID == info.crashed_tid)
+                    cntx = exception_context;
+                else
+                {
+                    memset(&cntx, 0, sizeof(cntx));
+
+                    if (te.th32ThreadID == current_thread_id())
+                    {
+                        cntx.ContextFlags = CONTEXT_FULL;
+                        RtlCaptureContext(&cntx);
+                    }
+                    else
+                    {
+                        cntx.ContextFlags = CONTEXT_FULL;
+                        if (!GetThreadContext(hThread, &cntx)) // this function doesn't work for current thread
+                        {
+                            CloseHandle(hThread);
+                            continue;
+                        }
+                    }
+                }
+
+                if (te.th32ThreadID != current_thread_id())
+                {
+                    if (SuspendThread(hThread) == -1)
+                    {
+                        CloseHandle(hThread);
+                        continue;
+                    }
+
+                }
+
+#ifdef _M_IX86
+                // normally, call ImageNtHeader() and use machine info from PE header
+                image_type = IMAGE_FILE_MACHINE_I386;
+                stack_frame.AddrPC.Offset    = cntx.Eip;
+                stack_frame.AddrPC.Mode      = AddrModeFlat;
+                stack_frame.AddrFrame.Offset = cntx.Ebp;
+                stack_frame.AddrFrame.Mode   = AddrModeFlat;
+                stack_frame.AddrStack.Offset = cntx.Esp;
+                stack_frame.AddrStack.Mode   = AddrModeFlat;
+#elif _M_X64
+                image_type = IMAGE_FILE_MACHINE_AMD64;
+                stack_frame.AddrPC.Offset    = cntx.Rip;
+                stack_frame.AddrPC.Mode      = AddrModeFlat;
+                stack_frame.AddrFrame.Offset = cntx.Rsp;
+                stack_frame.AddrFrame.Mode   = AddrModeFlat;
+                stack_frame.AddrStack.Offset = cntx.Rsp;
+                stack_frame.AddrStack.Mode   = AddrModeFlat;
+#elif _M_IA64
+                image_type = IMAGE_FILE_MACHINE_IA64;
+                stack_frame.AddrPC.Offset     = cntx.StIIP;
+                stack_frame.AddrPC.Mode       = AddrModeFlat;
+                stack_frame.AddrFrame.Offset  = cntx.IntSp;
+                stack_frame.AddrFrame.Mode    = AddrModeFlat;
+                stack_frame.AddrBStore.Offset = cntx.RsBSP;
+                stack_frame.AddrBStore.Mode   = AddrModeFlat;
+                stack_frame.AddrStack.Offset  = cntx.IntSp;
+                stack_frame.AddrStack.Mode    = AddrModeFlat;
+#else
+#   error "Platform not supported!"
+#endif
+
+                for (static size_t frame_num = 0; frame_num < STACK_SIZE; ++frame_num)
+                {
+                    // get next stack frame (StackWalk64(), SymFunctionTableAccess64(), SymGetModuleBase64())
+                    // if this returns ERROR_INVALID_ADDRESS (487) or ERROR_NOACCESS (998), you can
+                    // assume that either you are done, or that the stack is so hosed that the next
+                    // deeper frame could not be found.
+                    // CONTEXT need not to be supplied if image_type is IMAGE_FILE_MACHINE_I386!
+                    if (!StackWalk64(image_type, hProc, hThread, &stack_frame, &cntx, NULL,
+                                      &SymFunctionTableAccess64, &SymGetModuleBase64, NULL))
+                        break;
+                }
+
+                if (te.th32ThreadID != current_thread_id())
+                    ResumeThread(hThread);
+                CloseHandle(hThread);
+
+            }
+            te.dwSize = sizeof(te);
+        }
+        while (Thread32Next(hSnapshot, &te));
+    }
+    CloseHandle(hSnapshot);
 }
 
 /****
@@ -203,8 +286,8 @@ win_impl::win_impl(primary_handler_f const* hp)
     memset(&exception_record , 0, sizeof(exception_record ));
     memset(&exception_context, 0, sizeof(exception_context));
     memset(extra_message     , 0, EXTRA_MESSAGE_SIZE       );
-    memset(&mod_entry        , 0, sizeof(mod_entry)        );
-    memset(stexp_place       , 0, sizeof(stack_explorer)   );
+    memset(&mod_entry        , 0, sizeof(mod_entry        ));
+    memset(&cntx             , 0, sizeof(cntx             ));
 
     prev_crt_assert            = 0;
     prev_crt_error             = 0;
@@ -216,7 +299,8 @@ win_impl::win_impl(primary_handler_f const* hp)
 
     err_code    = 0;
     hSnapshot   = 0;
-    cntx        = 0;
+    hProc       = 0;
+    hThread     = 0;
 }
 
 void win_impl::install_handlers()

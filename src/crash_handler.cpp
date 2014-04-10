@@ -37,7 +37,8 @@ void handler::impl::report_and_exit()
     info.pid         = current_process_id();
     info.crashed_tid = current_thread_id();
 
-    get_stack();
+    get_context();
+    get_stack  ();
 
     // crash_info ready here (without pretty names yet)
     if (!ph_ || !ph_(info))

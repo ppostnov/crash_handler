@@ -32,6 +32,7 @@
 			<Add directory="$(WindowsSdkDir)Lib" />
 		</Linker>
 		<Unit filename="../include/crash_handler.h" />
+		<Unit filename="../include/crash_handler_impl.h" />
 		<Unit filename="../include/export.h" />
 		<Unit filename="../include/process_monitor.h" />
 		<Unit filename="../include/process_monitor.hpp" />

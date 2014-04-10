@@ -26,6 +26,7 @@ private:
 protected:
     virtual void install_handlers() = 0;
     virtual void remove_handlers () = 0;
+    virtual void get_context     () = 0;
     virtual void get_stack       () = 0;
 
 protected:
@@ -51,6 +52,7 @@ struct win_impl : handler::impl
 protected:
     void install_handlers() override;
     void remove_handlers () override;
+    void get_context     () override;
     void get_stack       () override;
 
 protected:
@@ -66,11 +68,17 @@ protected:
 
 
     HANDLE            hSnapshot;
+    HANDLE            hProc;
+    HANDLE            hThread;
     THREADENTRY32     te;
-    CONTEXT*          cntx;
+    CONTEXT           cntx;
     MODULEENTRY32     mod_entry;
 
-    char              stexp_place[sizeof(stack_explorer)];
+    STACKFRAME64      stack_frame;
+    DWORD             image_type;
+    stack_frame_t*    s_entry;
+    IMAGEHLP_LINE64   line;
+    DWORD             displacement;
 };
 
 /*#elif __linux__
@@ -82,6 +90,7 @@ struct linux_impl : handler::impl
 protected:
     void install_handlers() override;
     void remove_handlers () override;
+    void get_context     () override;
     void get_stack       () override;
 };
 

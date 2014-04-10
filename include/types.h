@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "util.h"
 
 
@@ -50,15 +51,21 @@ struct stack_frame_t
 
     uint16_t    line;
     mem_addr_t  address;
+
+    stack_frame_t() : line(0), address(0) { }
 };
 
-static uint16_t const  STACK_SIZE = 128;
+static uint16_t const  STACK_SIZE  = 128;
+static uint16_t const  THREADS_NUM = 128;
+typedef std::array<stack_frame_t, STACK_SIZE>  thread_stack_t;
+
 struct crash_info
 {
     proc_id_t      pid;
     thread_id_t    crashed_tid;
     error_code     code;
-    stack_frame_t  stack[STACK_SIZE];
+
+    std::array<thread_stack_t, THREADS_NUM>  stack;
 };
 
 typedef bool (*primary_handler_f)(crash_info const&);
