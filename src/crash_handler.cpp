@@ -1,48 +1,52 @@
 #include "crash_handler.h"
-
+#include "crash_handler_impl.h"
 
 namespace crash_handler
 {
 
-struct handler::impl
+handler::impl::impl(primary_handler_f const* ph)
 {
-    struct mem_store
+    ph_ = 0;
+
+    if (ph)
+        ph_ = *ph;
+
+    memset(&info      , 0, sizeof(info      ));
+    memset(&time_t_buf, 0, sizeof(time_t_buf));
+    memset(&tm_buf    , 0, sizeof(tm_buf    ));
+    memset(time_buf   , 0, TIME_BUF_SIZE     );
+
+    install_handlers();
+}
+
+handler::impl::~impl()
+{
+    remove_handlers();
+}
+
+void handler::impl::report_and_exit()
+{
+    // crash_info ready here (without pretty names yet)
+    if (!ph_ || !ph_(info))
     {
-        mem_store()
-        {
-            name_len      = 0;
-            suffix_len    = 0;
+        // print to file
+    }
 
-            memset(&time_t_buf, 0, sizeof(time_t_buf));
-            memset(&tm_buf    , 0, sizeof(tm_buf)    );
-            memset(stack_buf  , 0, STACK_BUF_SIZE    );
-            memset(time_buf   , 0, TIME_BUF_SIZE     );
-        }
+    if (IsDebuggerPresent())
+        __debugbreak();
 
-        ~mem_store()
-        { }
+    TerminateProcess(GetCurrentProcess(), 1);
+}
 
-        //EXCEPTION_RECORD  exception_record;
-        //CONTEXT           exception_context;
 
-        fixed_string<DUMP_FILENAME_SIZE>  dumpfile;
-
-        size_t     name_len;
-        size_t     suffix_len;
-
-        time_t     time_t_buf;
-        struct tm  tm_buf;
-
-        stack_frame_t     stack_buf[STACK_BUF_SIZE];
-        char              time_buf [TIME_BUF_SIZE ];
-        std::ofstream     ofstr;
-    };
-
-    mem_store  m_;
-};
-
-handler::handler()
-    : pimpl_(new impl)
+handler::handler(primary_handler_f const* ph)
+#ifdef _WIN32
+    : pimpl_(new win_impl(ph))
+#elif __linux__
+    : pimpl_(new linux_impl(ph))
+#elif
+#   error "Unsupported platform"
+#endif
 { }
 
 handler::~handler()

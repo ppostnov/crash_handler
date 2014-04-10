@@ -10,10 +10,9 @@ namespace crash_handler
 
 struct CRASH_HANDLER_API handler
 {
-    handler(callbacks const* cbs = nullptr);
+    handler(primary_handler_f const* ph = nullptr);
     ~handler();
 
-private:
     struct impl;
     impl*  pimpl_;
 };

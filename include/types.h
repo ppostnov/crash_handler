@@ -1,4 +1,5 @@
 #pragma once
+#include "util.h"
 
 
 namespace crash_handler
@@ -38,12 +39,6 @@ typedef int32_t   thread_id_t;
 typedef uint64_t  mem_addr_t;
 typedef uint64_t  mem_size_t;
 
-struct context_t
-{
-    error_code   code;
-    thread_id_t  crashed_tid;
-    proc_id_t    pid;
-};
 
 static uint16_t const  MAX_FILENAME_LEN = 1023;
 static uint16_t const  MAX_FUNCTION_LEN = 1023;
@@ -52,21 +47,21 @@ struct stack_frame_t
 {
     util::fixed_string<MAX_FILENAME_LEN>  file;
     util::fixed_string<MAX_FUNCTION_LEN>  function;
+
     uint16_t    line;
     mem_addr_t  address;
 };
 
-// used to provide users callbacks in crash handling process
-struct callbacks
+static uint16_t const  STACK_SIZE = 128;
+struct crash_info
 {
-typedef bool (*primary_handler_f     )(context_t const&);
-typedef bool (*stack_handler_f       )(stack_frame_t const&, uint16_t);
-typedef bool (*pretty_stack_handler_f)(stack_frame_t const&, uint16_t);
-
-primary_handler_f       primary_cb;         // called on any crash
-stack_handler_f         stack_cb;           // called when stack is ready
-pretty_stack_handler_f  pretty_stack_cb;    // called when stack has pretty names
+    proc_id_t      pid;
+    thread_id_t    crashed_tid;
+    error_code     code;
+    stack_frame_t  stack[STACK_SIZE];
 };
+
+typedef bool (*primary_handler_f)(crash_info const&);
 
 char const* const ERROR_MESSAGES[] = {
     "Access violation",             // 0
