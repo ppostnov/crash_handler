@@ -32,8 +32,6 @@ private:
 
     // auxiliary variables
     util::path_composer pc_;
-    char*   buf_;
-    size_t  buflen_;
     size_t  len_;
 
     static size_t const  PATH_BUF_LEN = 1024;

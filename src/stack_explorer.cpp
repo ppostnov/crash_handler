@@ -27,11 +27,6 @@ stack_explorer::~stack_explorer()
 void stack_explorer::sym_init()
 {
     pc_.clear();
-    buflen_ = util::path_composer::PATH_LENGTH;
-
-    //memset(buf_, '\0', buflen_);
-
-    buflen_ -= 1; // for zero ending
     len_ = 0;
     len_ += pc_.append(".", 1);
 
