@@ -5,7 +5,7 @@
 #pragma comment(lib, "Shlwapi.lib")
 
 #include "stack_explorer.h"
-#include "util.h"
+
 
 
 stack_explorer::stack_explorer(DWORD dw_process_id, char const* sympath)
@@ -26,17 +26,17 @@ stack_explorer::~stack_explorer()
 
 void stack_explorer::sym_init()
 {
-    buf_    = sym_path_;
-    buflen_ = SYM_PATH_LEN;
+    pc_.clear();
+    buflen_ = util::path_composer::PATH_LENGTH;
 
-    memset(buf_, '\0', buflen_);
+    //memset(buf_, '\0', buflen_);
 
     buflen_ -= 1; // for zero ending
     len_ = 0;
-    len_ += append_path(buf_, buflen_, ".", 1);
+    len_ += pc_.append(".", 1);
 
     written_ = GetCurrentDirectoryA(PATH_BUF_LEN, path_buf_);
-    len_ += append_path(buf_ + len_, buflen_ - len_, path_buf_, PATH_BUF_LEN);
+    len_ += pc_.append(path_buf_, PATH_BUF_LEN);
 
     written_ += GetModuleFileNameA(NULL, path_buf_, 1024);
     if (written_ > 0)
@@ -45,22 +45,22 @@ void stack_explorer::sym_init()
         if (S_OK == res_ || S_FALSE == res_)
         {
             written_ = strlen(path_buf_);
-            len_ += append_path(buf_ + len_, buflen_ - len_, path_buf_, written_);
+            len_ += pc_.append(path_buf_, written_);
         }
     }
 
     written_ = GetEnvironmentVariableA("_NT_SYMBOL_PATH", path_buf_, PATH_BUF_LEN);
-    len_ += append_path(buf_ + len_, buflen_ - len_, path_buf_, written_);
+    len_ += pc_.append(path_buf_, written_);
 
     written_ = GetEnvironmentVariableA("_NT_ALTERNATE_SYMBOL_PATH", path_buf_, PATH_BUF_LEN);
-    len_ += append_path(buf_ + len_, buflen_ - len_, path_buf_, written_);
+    len_ += pc_.append(path_buf_, written_);
 
     written_ = GetEnvironmentVariableA("SYSTEMROOT", path_buf_, PATH_BUF_LEN);
-    len_ += append_path(buf_ + len_, buflen_ - len_, path_buf_, written_);
+    len_ += pc_.append(path_buf_, written_);
     strncat(path_buf_, "\\system32;", PATH_BUF_LEN - strlen(path_buf_));
-    len_ += append_path(buf_ + len_, buflen_ - len_, path_buf_, written_);
+    len_ += pc_.append(path_buf_, written_);
 
-    SymInitialize(h_proc_, sym_path_, FALSE); // can't do much with return value
+    SymInitialize(h_proc_, pc_.path(), FALSE); // can't do much with return value
 
     sym_options_ = SymGetOptions();
     sym_options_ |= SYMOPT_LOAD_LINES; // Loads line number information.

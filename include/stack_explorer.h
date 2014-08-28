@@ -4,6 +4,7 @@
 #  error "Stack explorer is for Windows only!!"
 #endif
 
+#include "util.h"
 #include "process_monitor.h"
 
 using namespace process_monitor;
@@ -25,13 +26,12 @@ private:
     DWORD   dw_proc_id_;
     HANDLE  h_proc_;
 
-    static size_t const  SYM_PATH_LEN = 2048;
     static size_t const  SYM_NAME_LEN = 256;
 
-    char  sym_path_[SYM_PATH_LEN];
     char  sym_name_[SYM_NAME_LEN];
 
     // auxiliary variables
+    util::path_composer pc_;
     char*   buf_;
     size_t  buflen_;
     size_t  len_;
